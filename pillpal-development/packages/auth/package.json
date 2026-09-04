@@ -1,25 +1,21 @@
 {
-  "name": "@pillpal/database",
+  "name": "@pillpal/auth",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./auth": "./src/auth.ts"
   },
   "scripts": {
-    "generate": "prisma generate",
-    "migrate": "prisma migrate dev",
-    "push": "prisma db push",
-    "studio": "prisma studio",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^7.10.0"
+    "@supabase/supabase-js": "^2.115.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
-    "prisma": "^7.10.0",
     "typescript": "7.0.2"
   }
 }
