@@ -7,9 +7,14 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "seed:admin": "tsx src/scripts/seed-admin.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@pillpal/database": "^1.0.0",
+    "@supabase/supabase-js": "^2.115.0",
+    "dotenv": "^16.0.3"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "tsx": "^4.20.5",

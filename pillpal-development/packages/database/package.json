@@ -15,10 +15,13 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^7.10.0"
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
+    "@types/pg": "^8.23.1",
     "prisma": "^7.10.0",
     "typescript": "7.0.2"
   }

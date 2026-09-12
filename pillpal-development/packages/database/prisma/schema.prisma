@@ -1,16 +1,46 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
+enum UserRole {
+  PATIENT
+  DOCTOR
+  HEALTH_STAFF
+  ADMIN
+}
+
+enum UserType {
+  STUDENT
+  EMPLOYEE
+  HEALTHCARE_PROVIDER
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  firstName String
-  lastName  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String        @id @default(cuid())
+  supabaseUserId String        @unique
+
+  email          String        @unique
+  firstName      String
+  lastName       String
+
+  phone          String?
+  workId         String?
+  specialization String?
+
+  role           UserRole      @default(PATIENT)
+  userType       UserType
+  status         AccountStatus @default(ACTIVE)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 }
