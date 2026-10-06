@@ -31,3 +31,9 @@ export async function getSession() {
 export async function getUser() {
   return supabase.auth.getUser();
 }
+
+export async function updatePassword(password: string) {
+  return supabase.auth.updateUser({
+    password,
+  });
+}

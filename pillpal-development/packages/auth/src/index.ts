@@ -6,4 +6,5 @@ export {
   signOut,
   getSession,
   getUser,
+  updatePassword,
 } from "./auth.js";

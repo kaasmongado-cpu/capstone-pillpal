@@ -9,6 +9,15 @@ import { adminSetupStatusRoute } from "./routes/admin-setup-status.js";
 import { healthRoute } from "./routes/health.js";
 import { meRoute } from "./routes/me.js";
 import { providersRoute } from "./routes/providers.js";
+import { activityLogsRoute } from "./routes/activity-logs.js";
+import { notificationsRoute } from "./routes/notifications.js";
+import { dashboardRoute } from "./routes/dashboard.js";
+import { clinicalDashboardRoute } from "./routes/clinical-dashboard.js";
+import { patientsRoute } from "./routes/patients.js";
+import { medicationsRoute } from "./routes/medications.js";
+import { adherenceRoute } from "./routes/adherence.js";
+import { appointmentsRoute } from "./routes/appointments.js";
+import { inventoryRoute } from "./routes/inventory.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,14 +28,19 @@ dotenv.config({
 });
 
 const PORT = 4000;
-const ALLOWED_ORIGIN = "http://localhost:5173";
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+];
 
 const server = createServer((req, res) => {
-  // CORS headers
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    ALLOWED_ORIGIN,
-  );
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+  }
 
   res.setHeader(
     "Access-Control-Allow-Methods",
@@ -82,6 +96,51 @@ const server = createServer((req, res) => {
     req.url === "/setup/admin"
   ) {
     void adminSetupRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/dashboard")) {
+    void dashboardRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/activity-logs")) {
+    void activityLogsRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/notifications")) {
+    void notificationsRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/clinical-dashboard")) {
+    void clinicalDashboardRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/patients")) {
+    void patientsRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/medications")) {
+    void medicationsRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/adherence")) {
+    void adherenceRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/appointments")) {
+    void appointmentsRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/inventory")) {
+    void inventoryRoute(req, res);
     return;
   }
 

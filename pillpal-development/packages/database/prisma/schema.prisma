@@ -25,6 +25,58 @@ enum AccountStatus {
   INACTIVE
 }
 
+enum MedicationStatus {
+  ACTIVE
+  COMPLETED
+  DISCONTINUED
+  PAUSED
+}
+
+enum AdherenceStatus {
+  TAKEN
+  MISSED
+  SKIPPED
+}
+
+enum AppointmentType {
+  IN_PERSON
+  TELEHEALTH
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+  NO_SHOW
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ALERT
+}
+
+enum InventoryStatus {
+  AVAILABLE
+  LOW_STOCK
+  OUT_OF_STOCK
+  EXPIRED
+}
+
+enum InventoryTransactionType {
+  RECEIVED
+  DISPENSED_RX
+  DISPENSED_OTC
+  ADJUSTED_AUDIT
+  DAMAGED_EXPIRED
+  RETURNED
+}
+
 model User {
   id             String        @id @default(cuid())
   supabaseUserId String        @unique
@@ -43,4 +95,218 @@ model User {
 
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+
+  activities     ActivityLog[]
+  notifications  AdminNotification[]
+
+  patientProfile           PatientProfile?
+  prescriptionsCreated     Prescription[]            @relation("DoctorPrescriptions")
+  appointmentsAssigned     Appointment[]             @relation("ProviderAppointments")
+  appointmentsConfirmed    Appointment[]             @relation("StaffConfirmedAppointments")
+  conversationParticipants ConversationParticipant[]
+  messagesSent             Message[]                 @relation("UserSentMessages")
+  inventoryTransactions    InventoryTransaction[]    @relation("UserInventoryTransactions")
+}
+
+model PatientProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  idNumber              String   @unique // CSU Student ID or Employee ID (e.g. 2022-04912)
+  department            String   // College or Office (e.g. "College of Nursing")
+  
+  dateOfBirth           DateTime?
+  gender                String?
+  bloodType             String?
+  allergies             String?
+  medicalConditions     String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prescriptions         Prescription[]
+  adherenceLogs         AdherenceLog[]
+  appointments          Appointment[]
+}
+
+model Prescription {
+  id            String           @id @default(cuid())
+  patientId     String
+  doctorId      String?
+
+  name          String           // Medication Name
+  dosage        String           // e.g. "500 mg"
+  form          String?          // Tablet, Capsule, Inhaler, Syrup
+  instructions  String?          // e.g. "Take after breakfast with water"
+  frequency     String           // e.g. "Twice daily", "Once daily morning"
+  scheduleTimes String[]         // e.g. ["08:00 AM", "06:00 PM"]
+
+  startDate     DateTime         @default(now())
+  endDate       DateTime?
+  status        MedicationStatus @default(ACTIVE)
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  patient       PatientProfile   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor        User?            @relation("DoctorPrescriptions", fields: [doctorId], references: [id], onDelete: SetNull)
+  adherenceLogs AdherenceLog[]
+}
+
+model AdherenceLog {
+  id             String          @id @default(cuid())
+  patientId      String
+  prescriptionId String
+
+  scheduledTime  DateTime
+  takenTime      DateTime?
+  status         AdherenceStatus @default(TAKEN)
+  notes          String?
+
+  createdAt      DateTime        @default(now())
+
+  patient        PatientProfile  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  prescription   Prescription    @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+}
+
+model Appointment {
+  id                 String            @id @default(cuid())
+  patientId          String
+  providerId         String?           // Assigned Doctor
+  confirmedById      String?           // Health Staff who triaged/confirmed
+
+  scheduledAt        DateTime          // Confirmed / target time
+  requestedDate      DateTime?         // Student initial requested date
+  reason             String            // Chief complaint / reason
+  type               AppointmentType   @default(IN_PERSON)
+  status             AppointmentStatus @default(CONFIRMED)
+
+  // Clinical & Triage Details
+  patientNotes       String?           // Additional student notes
+  clinicalNotes      String?           // Doctor's SOAP / consultation notes
+  rejectionReason    String?           // Reason if rejected by triage staff
+  cancellationReason String?           // Reason if cancelled
+  telehealthUrl      String?           // Video link if TELEHEALTH
+
+  checkedInAt        DateTime?         // When patient arrived in waiting lobby
+  startedAt          DateTime?         // When consultation began
+  completedAt        DateTime?         // When doctor finished
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  patient            PatientProfile    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  provider           User?             @relation("ProviderAppointments", fields: [providerId], references: [id], onDelete: SetNull)
+  confirmedBy        User?             @relation("StaffConfirmedAppointments", fields: [confirmedById], references: [id], onDelete: SetNull)
+}
+
+model Conversation {
+  id           String                    @id @default(cuid())
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  isRead         Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("UserSentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  adminId    String?
+  action     String
+  details    String
+  targetId   String?
+  targetType String?
+  createdAt  DateTime @default(now())
+
+  admin      User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+}
+
+model AdminNotification {
+  id        String           @id @default(cuid())
+  userId    String?
+  type      NotificationType @default(INFO)
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user      User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model InventoryItem {
+  id           String          @id @default(cuid())
+  name         String          // Generic Name (e.g., "Amoxicillin")
+  brandName    String?         // Brand Name if applicable (e.g., "Amoxil")
+  strength     String          // e.g. "500 mg", "100 mcg", "10 mg"
+  form         String          // Tablet, Capsule, Syrup, Inhaler, Vial
+  category     String          // Antibiotics, Analgesics, Antihypertensives, Respiratory, etc.
+  
+  currentStock Int             @default(0)
+  minimumStock Int             @default(20)
+  status       InventoryStatus @default(AVAILABLE)
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  batches      InventoryBatch[]
+  transactions InventoryTransaction[]
+}
+
+model InventoryBatch {
+  id              String        @id @default(cuid())
+  inventoryItemId String
+  batchNumber     String        // e.g. "LOT-2026-09A"
+  quantity        Int           // Units in this specific lot
+  expiryDate      DateTime
+  receivedDate    DateTime      @default(now())
+  supplier        String?       // e.g. "DOH Regional Depot", "Mercury Drug Bulk"
+
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+}
+
+model InventoryTransaction {
+  id              String                   @id @default(cuid())
+  inventoryItemId String
+  type            InventoryTransactionType
+  quantity        Int                      // Positive for added stock, negative for dispensed/disposed
+  previousStock   Int
+  newStock        Int
+  
+  performedById   String                   // Health Staff User ID
+  patientId       String?                  // Optional: Linked Patient Profile ID
+  prescriptionId  String?                  // Optional: Linked Prescription ID
+  batchNumber     String?                  // Specific lot if tracked
+  reason          String?                  // e.g. "Prescription refill for Maria Santos", "Monthly inventory recount"
+  
+  createdAt       DateTime                 @default(now())
+
+  inventoryItem   InventoryItem            @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  performedBy     User                     @relation("UserInventoryTransactions", fields: [performedById], references: [id])
 }

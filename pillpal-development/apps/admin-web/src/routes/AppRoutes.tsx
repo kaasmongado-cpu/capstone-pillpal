@@ -11,16 +11,10 @@ import { AdminSetup } from "@/pages/AdminSetup/AdminSetup";
 import { Dashboard } from "@/pages/Dashboard/Dashboard";
 import { Login } from "@/pages/Login/Login";
 import { Providers } from "@/pages/Providers/Providers";
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div>
-      <h1 className="text-2xl font-semibold">
-        {title}
-      </h1>
-    </div>
-  );
-}
+import { ActivityLog } from "@/pages/ActivityLog/ActivityLog";
+import { Notifications } from "@/pages/Notifications/Notifications";
+import { Settings } from "@/pages/Settings/Settings";
+import { Profile } from "@/pages/Profile/Profile";
 
 export function AppRoutes() {
   return (
@@ -62,31 +56,23 @@ export function AppRoutes() {
             />
 
             <Route
-              path="providers/doctors"
-              element={
-                <Placeholder title="Doctors" />
-              }
-            />
-
-            <Route
-              path="providers/health-staff"
-              element={
-                <Placeholder title="Health Staff" />
-              }
+              path="activity-log"
+              element={<ActivityLog />}
             />
 
             <Route
               path="notifications"
-              element={
-                <Placeholder title="Notifications" />
-              }
+              element={<Notifications />}
             />
 
             <Route
               path="settings"
-              element={
-                <Placeholder title="Settings" />
-              }
+              element={<Settings />}
+            />
+
+            <Route
+              path="profile"
+              element={<Profile />}
             />
           </Route>
         </Route>

@@ -9,6 +9,8 @@ import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
 import { prisma } from "@pillpal/database";
+import { logActivity } from "../services/activity-log.js";
+import { createNotification } from "../services/notifications.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -159,6 +161,21 @@ export async function adminSetupRoute(
           role: "ADMIN",
           userType: "HEALTHCARE_PROVIDER",
         },
+      });
+
+      await logActivity({
+        adminId: admin.id,
+        action: "ADMIN_SETUP_COMPLETED",
+        details: `Initial administrator account created for ${admin.firstName} ${admin.lastName} (${admin.email}).`,
+        targetId: admin.id,
+        targetType: "USER",
+      });
+
+      await createNotification({
+        userId: admin.id,
+        type: "SUCCESS",
+        title: "Welcome to PILLPAL Management",
+        message: "Administrator account setup was completed successfully.",
       });
 
       sendJson(res, 201, {

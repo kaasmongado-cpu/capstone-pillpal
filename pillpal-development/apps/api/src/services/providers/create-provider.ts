@@ -118,6 +118,10 @@ export async function createProvider(
     );
   }
 
+  const healthcareWebUrl =
+    process.env.HEALTHCARE_WEB_URL || "http://localhost:5174";
+  const redirectTo = `${healthcareWebUrl}/set-password`;
+
   const { data, error } =
     await supabase.auth.admin.inviteUserByEmail(
       email,
@@ -128,6 +132,7 @@ export async function createProvider(
           role,
           userType: "HEALTHCARE_PROVIDER",
         },
+        redirectTo,
       },
     );
 

@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { X } from "lucide-react";
-import { getSession } from "@pillpal/auth";
+import { CheckCircle2, Mail, Stethoscope, UserCheck, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-
+import { fetchWithAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,8 +12,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const API_URL = "http://localhost:4000";
 
 type ProviderRole = "DOCTOR" | "HEALTH_STAFF";
 
@@ -31,16 +28,13 @@ export function CreateProviderDialog({
 }: CreateProviderDialogProps) {
   const navigate = useNavigate();
 
-  const [role, setRole] =
-    useState<ProviderRole>("DOCTOR");
-
+  const [role, setRole] = useState<ProviderRole>("DOCTOR");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [workId, setWorkId] = useState("");
-  const [specialization, setSpecialization] =
-    useState("");
+  const [specialization, setSpecialization] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -59,336 +53,255 @@ export function CreateProviderDialog({
   }
 
   function handleClose() {
-    if (loading) {
-      return;
-    }
-
+    if (loading) return;
     resetForm();
     onClose();
   }
 
-  function handleRoleChange(
-    newRole: ProviderRole,
-  ) {
+  function handleRoleChange(newRole: ProviderRole) {
     setRole(newRole);
-
     if (newRole === "HEALTH_STAFF") {
       setSpecialization("");
     }
-
     setError("");
     setSuccess("");
   }
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setError("");
     setSuccess("");
 
-    if (
-      role === "DOCTOR" &&
-      !specialization.trim()
-    ) {
-      setError(
-        "Specialization is required for doctors.",
-      );
+    if (role === "DOCTOR" && !specialization.trim()) {
+      setError("Specialization is required for doctors.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const {
-        data: { session },
-      } = await getSession();
+      const response = await fetchWithAuth("/providers", {
+        method: "POST",
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          email,
+          phone: phone || undefined,
+          workId,
+          specialization: role === "DOCTOR" ? specialization : undefined,
+          role,
+        }),
+      });
 
-      if (!session) {
-        setError(
-          "Your admin session has expired. Please sign in again.",
-        );
+      const data = await response.json();
 
+      if (response.status === 401 || response.status === 403) {
         navigate("/login");
         return;
       }
 
-      const response = await fetch(
-        `${API_URL}/providers`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            firstName,
-            lastName,
-            email,
-            phone: phone || undefined,
-            workId,
-            specialization:
-              role === "DOCTOR"
-                ? specialization
-                : undefined,
-            role,
-          }),
-        },
-      );
-
-      const data = await response.json();
-
       if (!response.ok) {
-        setError(
-          data.message ??
-            "Unable to send the provider invitation.",
-        );
+        setError(data.message ?? "Unable to send the provider invitation.");
         return;
       }
 
-      setSuccess(
-        `Invitation sent successfully to ${email}.`,
-      );
-
+      setSuccess(`Invitation successfully sent to ${email}. They can now create their password.`);
       resetForm();
-
       onCreated?.();
 
       setTimeout(() => {
         onClose();
-      }, 1200);
+      }, 1500);
     } catch {
-      setError(
-        "Unable to connect to the PILLPAL server.",
-      );
+      setError("Unable to connect to the PILLPAL server.");
     } finally {
       setLoading(false);
     }
   }
 
-  if (!open) {
-    return null;
-  }
+  if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="create-provider-title"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          handleClose();
-        }
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-background shadow-xl">
+      <div className="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-background shadow-2xl animate-in fade-in-0 zoom-in-95 border border-border/60">
         <button
           type="button"
           onClick={handleClose}
           disabled={loading}
-          aria-label="Close"
-          className="absolute right-4 top-4 z-10 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          className="absolute right-4 top-4 z-10 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <X className="h-5 w-5" />
         </button>
 
         <Card className="border-0 shadow-none">
-          <CardHeader className="pr-16">
-            <CardTitle id="create-provider-title">
-              Invite Provider
-            </CardTitle>
-
-            <CardDescription>
-              Create a Doctor or Health Staff account.
-              An invitation email will be sent to the
-              provider so they can set their own password.
+          <CardHeader className="pr-14 pb-4 border-b border-border/50">
+            <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider">
+              <Mail className="h-4 w-4" />
+              CSU Healthcare Provider Invitation
+            </div>
+            <CardTitle className="text-xl">Invite Clinician to PILLPAL</CardTitle>
+            <CardDescription className="text-xs">
+              The invited provider will receive an email verification link to establish their account password and access the Healthcare Web portal.
             </CardDescription>
           </CardHeader>
 
-          <CardContent>
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-6"
-            >
-              <div className="space-y-2">
-                <Label htmlFor="provider-role">
-                  Provider Type
-                </Label>
-
-                <select
-                  id="provider-role"
-                  value={role}
-                  onChange={(event) =>
-                    handleRoleChange(
-                      event.target
-                        .value as ProviderRole,
-                    )
-                  }
-                  disabled={loading}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                >
-                  <option value="DOCTOR">
-                    Doctor
-                  </option>
-
-                  <option value="HEALTH_STAFF">
-                    Health Staff
-                  </option>
-                </select>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="provider-first-name">
-                    First Name
-                  </Label>
-
-                  <Input
-                    id="provider-first-name"
-                    type="text"
-                    placeholder="First name"
-                    value={firstName}
-                    onChange={(event) =>
-                      setFirstName(
-                        event.target.value,
-                      )
-                    }
-                    required
-                    disabled={loading}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="provider-last-name">
-                    Last Name
-                  </Label>
-
-                  <Input
-                    id="provider-last-name"
-                    type="text"
-                    placeholder="Last name"
-                    value={lastName}
-                    onChange={(event) =>
-                      setLastName(
-                        event.target.value,
-                      )
-                    }
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="provider-email">
-                  Email
-                </Label>
-
-                <Input
-                  id="provider-email"
-                  type="email"
-                  placeholder="provider@example.com"
-                  value={email}
-                  onChange={(event) =>
-                    setEmail(event.target.value)
-                  }
-                  required
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="provider-phone">
-                  Phone Number
-                </Label>
-
-                <Input
-                  id="provider-phone"
-                  type="tel"
-                  placeholder="09XXXXXXXXX"
-                  value={phone}
-                  onChange={(event) =>
-                    setPhone(event.target.value)
-                  }
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="provider-work-id">
-                  Work ID
-                </Label>
-
-                <Input
-                  id="provider-work-id"
-                  type="text"
-                  placeholder="Enter work ID"
-                  value={workId}
-                  onChange={(event) =>
-                    setWorkId(event.target.value)
-                  }
-                  required
-                  disabled={loading}
-                />
-              </div>
-
-              {role === "DOCTOR" && (
-                <div className="space-y-2">
-                  <Label htmlFor="provider-specialization">
-                    Specialization
-                  </Label>
-
-                  <Input
-                    id="provider-specialization"
-                    type="text"
-                    placeholder="e.g. General Medicine"
-                    value={specialization}
-                    onChange={(event) =>
-                      setSpecialization(
-                        event.target.value,
-                      )
-                    }
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              )}
-
-              <div className="rounded-md border bg-muted/40 p-4">
-                <p className="text-sm font-medium">
-                  Invitation Email
-                </p>
-
-                <p className="mt-1 text-sm text-muted-foreground">
-                  The provider will receive an email
-                  containing a secure invitation link.
-                  They will use the link to set their
-                  own password and access PILLPAL.
-                </p>
-              </div>
-
+          <CardContent className="pt-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3">
-                  <p className="text-sm text-destructive">
-                    {error}
-                  </p>
+                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+                  {error}
                 </div>
               )}
 
               {success && (
-                <div className="rounded-md border border-green-500/30 bg-green-500/10 p-3">
-                  <p className="text-sm text-green-600">
-                    {success}
-                  </p>
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>{success}</span>
                 </div>
               )}
 
-              <div className="flex justify-end gap-3 border-t pt-4">
+              {/* Role Selection Cards */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Select Provider Role *</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleRoleChange("DOCTOR")}
+                    className={`flex flex-col items-start rounded-lg border p-3 text-left transition-all ${
+                      role === "DOCTOR"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
+                        : "border-border hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`rounded-md p-1.5 ${role === "DOCTOR" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                        <Stethoscope className="h-4 w-4" />
+                      </div>
+                      <span className="text-sm font-bold text-foreground">Doctor</span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Prescribes medications, sets clinical dosage schedules, monitors patients.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRoleChange("HEALTH_STAFF")}
+                    className={`flex flex-col items-start rounded-lg border p-3 text-left transition-all ${
+                      role === "HEALTH_STAFF"
+                        ? "border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600 shadow-xs"
+                        : "border-border hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`rounded-md p-1.5 ${role === "HEALTH_STAFF" ? "bg-indigo-600 text-white" : "bg-muted text-muted-foreground"}`}>
+                        <UserCheck className="h-4 w-4" />
+                      </div>
+                      <span className="text-sm font-bold text-foreground">Health Staff</span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Clinic nurse/officer, logs check-ins, assists patients with adherence support.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Name Fields */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="firstName" className="text-xs font-medium">First Name *</Label>
+                  <Input
+                    id="firstName"
+                    required
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="e.g. Maria"
+                    className="text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="lastName" className="text-xs font-medium">Last Name *</Label>
+                  <Input
+                    id="lastName"
+                    required
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="e.g. Santos"
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Email & Phone */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-medium">Email Address (CSU) *</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="doctor@csu.edu.ph"
+                    className="text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone" className="text-xs font-medium">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="Optional (e.g. 09123456789)"
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Work ID & Specialization */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="workId" className="text-xs font-medium">Work / License ID *</Label>
+                  <Input
+                    id="workId"
+                    required
+                    value={workId}
+                    onChange={(e) => setWorkId(e.target.value)}
+                    placeholder="e.g. CSU-MED-204"
+                    className="text-xs"
+                  />
+                </div>
+
+                {role === "DOCTOR" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="specialization" className="text-xs font-medium">Specialization *</Label>
+                    <Input
+                      id="specialization"
+                      required
+                      value={specialization}
+                      onChange={(e) => setSpecialization(e.target.value)}
+                      placeholder="e.g. General Medicine"
+                      className="text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Actions */}
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-border/50">
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
                   onClick={handleClose}
                   disabled={loading}
                 >
@@ -397,11 +310,12 @@ export function CreateProviderDialog({
 
                 <Button
                   type="submit"
+                  size="sm"
                   disabled={loading}
+                  className="gap-1.5 shadow-sm"
                 >
-                  {loading
-                    ? "Sending Invitation..."
-                    : "Send Invitation"}
+                  <Mail className="h-3.5 w-3.5" />
+                  {loading ? "Sending Invitation..." : "Send Invitation"}
                 </Button>
               </div>
             </form>

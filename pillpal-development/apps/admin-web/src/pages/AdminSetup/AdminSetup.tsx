@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-
+import {
+  ArrowRight,
+  CheckCircle2,
+  Lock,
+  Mail,
+  ShieldCheck,
+  User,
+} from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { API_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,8 +20,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const API_URL = "http://localhost:4000";
-
 type SetupStatus = {
   setupRequired: boolean;
 };
@@ -21,44 +27,32 @@ type SetupStatus = {
 export function AdminSetup() {
   const navigate = useNavigate();
 
-  const [setupRequired, setSetupRequired] =
-    useState<boolean | null>(null);
-
+  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [checkingSetup, setCheckingSetup] =
-    useState(true);
+  const [checkingSetup, setCheckingSetup] = useState(true);
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     async function checkSetupStatus() {
       try {
-        const response = await fetch(
-          `${API_URL}/setup/admin/status`,
-        );
-
-        const data =
-          (await response.json()) as SetupStatus;
+        const response = await fetch(`${API_URL}/setup/admin/status`);
+        const data = (await response.json()) as SetupStatus;
 
         if (!response.ok) {
-          setError(
-            "Unable to check the admin setup status.",
-          );
+          setError("Unable to check admin setup status.");
           return;
         }
 
         setSetupRequired(data.setupRequired);
       } catch {
-        setError(
-          "Unable to connect to the PILLPAL server.",
-        );
+        setError("Unable to connect to the PILLPAL backend server.");
       } finally {
         setCheckingSetup(false);
       }
@@ -67,11 +61,8 @@ export function AdminSetup() {
     void checkSetupStatus();
   }, []);
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setError("");
 
     if (password !== confirmPassword) {
@@ -80,47 +71,36 @@ export function AdminSetup() {
     }
 
     if (password.length < 8) {
-      setError(
-        "Password must be at least 8 characters.",
-      );
+      setError("Password must be at least 8 characters.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${API_URL}/setup/admin`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            firstName,
-            lastName,
-            email,
-            password,
-          }),
+      const response = await fetch(`${API_URL}/setup/admin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          email,
+          password,
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(
-          data.message ??
-            "Unable to create the administrator account.",
-        );
+        setError(data.message ?? "Unable to complete administrator account setup.");
         return;
       }
 
       setSuccess(true);
-      setSetupRequired(false);
     } catch {
-      setError(
-        "Unable to connect to the PILLPAL server.",
-      );
+      setError("Unable to connect to the PILLPAL server.");
     } finally {
       setLoading(false);
     }
@@ -128,104 +108,34 @@ export function AdminSetup() {
 
   if (checkingSetup) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>
-              Checking Admin Setup
-            </CardTitle>
-
-            <CardDescription>
-              Please wait while we check whether PILLPAL
-              has already been configured.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+      <main className="flex min-h-screen items-center justify-center bg-background p-6">
+        <p className="text-sm text-muted-foreground animate-pulse">
+          Checking platform initialization status...
+        </p>
       </main>
     );
   }
 
-  if (error && setupRequired === null) {
+  if (setupRequired === false && !success) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>
-              Unable to Check Setup
-            </CardTitle>
-
-            <CardDescription>
-              We couldn't determine whether the initial
-              administrator setup has been completed.
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-muted/40 p-4 sm:p-6">
+        <Card className="w-full max-w-md border-border/60 shadow-xl text-center">
+          <CardHeader className="pb-4">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 mb-2">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <CardTitle className="text-xl">Setup Already Completed</CardTitle>
+            <CardDescription className="text-xs">
+              The primary administrator account has already been initialized for Caraga State University.
             </CardDescription>
           </CardHeader>
-
-          <CardContent className="space-y-4">
-            <p className="text-sm text-destructive">
-              {error}
-            </p>
-
+          <CardContent className="pt-2">
             <Button
-              className="w-full"
+              className="w-full gap-2 font-semibold"
               onClick={() => navigate("/login")}
             >
-              Go to Admin Login
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
-
-  if (!setupRequired) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl">
-              Admin Setup Completed
-            </CardTitle>
-
-            <CardDescription>
-              The initial PILLPAL administrator account
-              has already been created.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent>
-            <Button
-              className="w-full"
-              onClick={() => navigate("/login")}
-            >
-              Continue to Admin Login
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
-
-  if (success) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl">
-              Administrator Created
-            </CardTitle>
-
-            <CardDescription>
-              Your PILLPAL administrator account has been
-              created successfully.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent>
-            <Button
-              className="w-full"
-              onClick={() => navigate("/login")}
-            >
-              Continue to Admin Login
+              Go to Sign In
+              <ArrowRight className="h-4 w-4" />
             </Button>
           </CardContent>
         </Card>
@@ -234,136 +144,163 @@ export function AdminSetup() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl">
-            PILLPAL Admin Setup
-          </CardTitle>
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-muted/40 p-4 sm:p-6">
+      <div className="w-full max-w-lg space-y-6">
+        {/* Brand Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-md text-primary-foreground font-bold text-xl">
+            P
+          </div>
 
-          <CardDescription>
-            Create the initial administrator account for
-            the PILLPAL Admin Portal.
-          </CardDescription>
-        </CardHeader>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Initial Platform Setup
+            </h1>
+            <p className="text-xs text-muted-foreground font-medium mt-0.5">
+              Caraga State University • Clinic Management System
+            </p>
+          </div>
+        </div>
 
-        <CardContent>
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-5"
-          >
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">
-                  First Name
-                </Label>
+        {/* Setup Card */}
+        <Card className="border-border/60 shadow-xl">
+          <CardHeader className="space-y-1 pb-4 border-b border-border/40">
+            <CardTitle className="text-lg">Create Root Administrator Account</CardTitle>
+            <CardDescription className="text-xs">
+              This master administrative account will have authority to invite CSU doctors, manage clinic staff, and govern system policies.
+            </CardDescription>
+          </CardHeader>
 
-                <Input
-                  id="firstName"
-                  type="text"
-                  placeholder="First name"
-                  value={firstName}
-                  onChange={(event) =>
-                    setFirstName(event.target.value)
-                  }
-                  required
-                  disabled={loading}
-                />
+          <CardContent className="pt-6">
+            {success ? (
+              <div className="space-y-4 text-center py-4">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 className="h-7 w-7" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">
+                    Administrator Account Created!
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your account has been configured in Supabase and the NeonDB registry.
+                  </p>
+                </div>
+
+                <Button
+                  className="w-full gap-2 font-semibold mt-4"
+                  onClick={() => navigate("/login")}
+                >
+                  Proceed to Sign In
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
               </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+                    {error}
+                  </div>
+                )}
 
-              <div className="space-y-2">
-                <Label htmlFor="lastName">
-                  Last Name
-                </Label>
+                {/* Name Fields */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="firstName" className="text-xs font-medium">First Name *</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="firstName"
+                        required
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="Admin"
+                        className="pl-9 text-xs"
+                      />
+                    </div>
+                  </div>
 
-                <Input
-                  id="lastName"
-                  type="text"
-                  placeholder="Last name"
-                  value={lastName}
-                  onChange={(event) =>
-                    setLastName(event.target.value)
-                  }
-                  required
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lastName" className="text-xs font-medium">Last Name *</Label>
+                    <Input
+                      id="lastName"
+                      required
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Officer"
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-medium">Administrator Email *</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="admin@pillpal.csu.edu.ph"
+                      className="pl-9 text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Password Fields */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="password" className="text-xs font-medium">Password *</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="password"
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Min. 8 chars"
+                        className="pl-9 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="confirmPassword" className="text-xs font-medium">Confirm Password *</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      required
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter password"
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full gap-2 shadow-sm font-semibold mt-2"
                   disabled={loading}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">
-                Administrator Email
-              </Label>
-
-              <Input
-                id="email"
-                type="email"
-                placeholder="admin@example.com"
-                value={email}
-                onChange={(event) =>
-                  setEmail(event.target.value)
-                }
-                required
-                disabled={loading}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">
-                Password
-              </Label>
-
-              <Input
-                id="password"
-                type="password"
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(event) =>
-                  setPassword(event.target.value)
-                }
-                required
-                minLength={8}
-                disabled={loading}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">
-                Confirm Password
-              </Label>
-
-              <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="Re-enter your password"
-                value={confirmPassword}
-                onChange={(event) =>
-                  setConfirmPassword(event.target.value)
-                }
-                required
-                minLength={8}
-                disabled={loading}
-              />
-            </div>
-
-            {error && (
-              <p className="text-sm text-destructive">
-                {error}
-              </p>
+                >
+                  {loading ? "Configuring Administrator..." : "Complete Setup & Initialize"}
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </form>
             )}
+          </CardContent>
+        </Card>
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={loading}
-            >
-              {loading
-                ? "Creating Administrator..."
-                : "Create Administrator"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+        <div className="text-center text-xs text-muted-foreground">
+          Already configured?{" "}
+          <Link to="/login" className="text-primary font-semibold hover:underline">
+            Go to Login
+          </Link>
+        </div>
+      </div>
     </main>
   );
 }

@@ -8,7 +8,12 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "check-types": "tsc --noEmit",
-    "seed:admin": "tsx src/scripts/seed-admin.ts"
+    "test": "tsx --test src/**/*.test.ts",
+    "provider:list": "tsx src/scripts/delete-provider.ts --list",
+    "provider:delete": "tsx src/scripts/delete-provider.ts",
+    "seed:clinical": "tsx src/scripts/seed-clinical.ts",
+    "clean:patients": "tsx src/scripts/clean-patients.ts",
+    "seed:inventory": "tsx src/scripts/seed-inventory.ts"
   },
   "dependencies": {
     "@pillpal/database": "^1.0.0",

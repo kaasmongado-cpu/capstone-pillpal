@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 
 import { getSession } from "@pillpal/auth";
-
-const API_URL = "http://localhost:4000";
+import { API_URL } from "@/lib/api";
 
 type AuthState =
   | "loading"

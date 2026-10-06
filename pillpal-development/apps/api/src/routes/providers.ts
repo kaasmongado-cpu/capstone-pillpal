@@ -24,6 +24,9 @@ import {
   updateProviderStatus,
   type ProviderAccountStatus,
 } from "../services/providers/update-provider-status.js";
+import { getAuthenticatedUser } from "../services/auth.js";
+import { logActivity } from "../services/activity-log.js";
+import { createNotification } from "../services/notifications.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,34 +83,21 @@ async function readRequestBody<T>(
 
 async function authenticateAdmin(
   req: IncomingMessage,
-): Promise<boolean> {
+) {
   const authorization = req.headers.authorization;
 
   if (!authorization?.startsWith("Bearer ")) {
-    return false;
+    return null;
   }
 
   const accessToken = authorization.slice(7);
+  const user = await getAuthenticatedUser(accessToken);
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(accessToken);
-
-  if (error || !user) {
-    return false;
+  if (!user || user.role !== "ADMIN") {
+    return null;
   }
 
-  const admin = await prisma.user.findUnique({
-    where: {
-      supabaseUserId: user.id,
-    },
-    select: {
-      role: true,
-    },
-  });
-
-  return admin?.role === "ADMIN";
+  return user;
 }
 
 function getProviderId(
@@ -151,9 +141,9 @@ export async function providersRoute(
   res: ServerResponse,
 ): Promise<void> {
   try {
-    const isAdmin = await authenticateAdmin(req);
+    const admin = await authenticateAdmin(req);
 
-    if (!isAdmin) {
+    if (!admin) {
       sendJson(res, 403, {
         message:
           "Administrator access is required.",
@@ -196,6 +186,22 @@ export async function providersRoute(
 
       const provider =
         await createProvider(body);
+
+      const roleLabel = provider.role === "DOCTOR" ? "Doctor" : "Health Staff";
+
+      await logActivity({
+        adminId: admin.id,
+        action: "PROVIDER_INVITED",
+        details: `${admin.firstName} ${admin.lastName} invited ${roleLabel} ${provider.firstName} ${provider.lastName} (${provider.email}).`,
+        targetId: provider.id,
+        targetType: "PROVIDER",
+      });
+
+      await createNotification({
+        type: "INFO",
+        title: "New Provider Invited",
+        message: `${roleLabel} ${provider.firstName} ${provider.lastName} was invited to join PILLPAL.`,
+      });
 
       sendJson(res, 201, {
         message:
@@ -249,6 +255,23 @@ export async function providersRoute(
           providerId,
           body.status,
         );
+
+      const statusAction = provider.status === "ACTIVE" ? "PROVIDER_ACTIVATED" : "PROVIDER_DEACTIVATED";
+      const statusLabel = provider.status === "ACTIVE" ? "activated" : "deactivated";
+
+      await logActivity({
+        adminId: admin.id,
+        action: statusAction,
+        details: `${admin.firstName} ${admin.lastName} ${statusLabel} account for ${provider.firstName} ${provider.lastName} (${provider.workId ?? provider.email}).`,
+        targetId: provider.id,
+        targetType: "PROVIDER",
+      });
+
+      await createNotification({
+        type: provider.status === "ACTIVE" ? "SUCCESS" : "WARNING",
+        title: `Provider Account ${provider.status === "ACTIVE" ? "Activated" : "Deactivated"}`,
+        message: `${provider.firstName} ${provider.lastName}'s account is now ${provider.status.toLowerCase()}.`,
+      });
 
       sendJson(res, 200, {
         message:
@@ -330,6 +353,14 @@ export async function providersRoute(
           providerId,
           body,
         );
+
+      await logActivity({
+        adminId: admin.id,
+        action: "PROVIDER_UPDATED",
+        details: `${admin.firstName} ${admin.lastName} updated profile information for ${provider.firstName} ${provider.lastName}.`,
+        targetId: provider.id,
+        targetType: "PROVIDER",
+      });
 
       sendJson(res, 200, {
         message:
