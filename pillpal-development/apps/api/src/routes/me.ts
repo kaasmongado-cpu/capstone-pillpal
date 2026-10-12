@@ -58,6 +58,7 @@ export async function meRoute(
       lastName: user.lastName,
       role: user.role,
       userType: user.userType,
+      patientProfile: (user as any).patientProfile || null,
     }),
   );
 }

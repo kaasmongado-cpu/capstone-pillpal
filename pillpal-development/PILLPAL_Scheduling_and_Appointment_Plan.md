@@ -75,6 +75,10 @@ stateDiagram-v2
     PENDING --> CONFIRMED : Health Staff Approves & Assigns Doctor
     PENDING --> REJECTED : Health Staff Rejects with Reason
 
+    PENDING --> CANCELLED : Auto-Cancelled if Date/Time Passes without Triage
+    CONFIRMED --> CANCELLED : Auto-Cancelled if Scheduled Window Elapsed
+    WAITING --> CANCELLED : Auto-Cancelled if Clinic Day Concludes without Consult
+
     CONFIRMED --> WAITING : Patient Arrives at Clinic (Check-In)
     CONFIRMED --> CANCELLED : Patient / Staff Cancels
     CONFIRMED --> NO_SHOW : Patient Fails to Attend
@@ -97,7 +101,7 @@ stateDiagram-v2
 4. **`IN_PROGRESS`**: Patient is currently inside the doctor's consultation room / active teleconsult session.
 5. **`COMPLETED`**: Consultation concluded. Clinical notes recorded and prescriptions (if any) generated.
 6. **`REJECTED`**: Health Staff declined the request (e.g., doctor on leave, incomplete info, referred elsewhere) with a documented reason.
-7. **`CANCELLED`**: Cancelled by patient or clinic prior to consultation.
+7. **`CANCELLED`**: Cancelled by patient, clinic, or automatically cancelled due to elapsed appointment window.
 8. **`NO_SHOW`**: Patient did not arrive during their confirmed appointment window.
 
 ---
@@ -128,24 +132,36 @@ stateDiagram-v2
 ### 4.3. Walk-In Clinic Reception Check-In
 1. Student walks into the CSU Clinic without a prior online appointment.
 2. Health Staff searches student by Name or ID Number (e.g., `2021-0042`).
-3. Staff selects **Instant Walk-In Check-In**:
-   - Selects reason for visit.
-   - Selects available Duty Doctor.
-   - System directly creates appointment with status `WAITING` (placed in active lobby queue).
+3. Selects consultation reason and assigns available on-duty doctor.
+4. Directly creates appointment with status `WAITING` $\rightarrow$ appears instantly in Doctor's Lobby Queue.
 
-### 4.4. Doctor Consultation & Direct Prescription
-1. Doctor logs into Healthcare Web $\rightarrow$ views **Today's Active Queue** (split into *Waiting in Lobby* and *Scheduled Today*).
-2. Doctor clicks **"Call Patient / Start Consultation"**:
-   - Status transitions from `WAITING` $\rightarrow$ `IN_PROGRESS`.
-   - Consultation Workspace opens with:
-     - **Patient Clinical Profile**: Vitals, allergies, medical conditions, adherence rate (%).
-     - **Past Medical History & Regimens**: Active vs. completed prescriptions.
-     - **Clinical SOAP Notes Editor**: Subjective, Objective, Assessment, Plan.
-     - **Integrated Medication Prescription Tool**: Search clinic pharmacy inventory in real time and prescribe medication with dosage, route, frequency, and duration.
-3. Doctor clicks **"Complete Consultation"**:
-   - Status transitions to `COMPLETED`.
-   - Clinical notes are permanently saved to patient record.
-   - Prescriptions are activated in the patient's PillPal app and synced with inventory.
+### 4.4. Patient Arrival Lobby Check-In
+1. Student arrives at CSU Infirmary for their `CONFIRMED` appointment.
+2. Student taps **"I Have Arrived at Clinic"** on Patient Web OR Reception staff clicks **"Check In"**.
+3. Status changes from `CONFIRMED` $\rightarrow$ `WAITING`.
+
+### 4.5. Doctor Consultation & Direct Dispensing / Rx
+1. Doctor views **Patients Waiting in Lobby** on Healthcare Web.
+2. Clicks **"Call Next Patient"** $\rightarrow$ status transitions to `IN_PROGRESS`.
+3. Enters clinical findings (Chief Complaint, Vitals, Assessment / Diagnosis, Treatment Plan).
+4. Direct Pharmacy Dispensing: Doctor selects medication from real-time clinic inventory, specifies dosage & quantity, and issues prescription.
+5. Clicks **"Complete Consultation"** $\rightarrow$ status set to `COMPLETED`.
+
+### 4.6. Patient Telehealth Video Consultation
+1. When consultation time arrives, either party clicks **"Join Telehealth Video Room"**.
+2. System opens WebRTC/Jitsi meeting room associated with the appointment.
+3. Doctor conducts medical review and records notes/prescriptions upon conclusion.
+
+### 4.7. Automated Overdue Appointment Cancellation Policy
+To maintain clinical data integrity and prevent stale bookings from clogging active queues:
+1. **Trigger Condition**: Any appointment remaining in `PENDING`, `CONFIRMED`, or `WAITING` status where `scheduledAt < current_timestamp`.
+2. **Automated Action**:
+   - Status updated to `CANCELLED`.
+   - Cancellation reason populated with standard notice: `"Automatically cancelled: Scheduled appointment time has passed without consultation."`
+3. **Execution Channels**:
+   - **Continuous Background Worker**: Runs periodically (every 60s) on API server startup.
+   - **Query-Time Interceptor**: Automatically evaluates and cancels overdue records prior to returning queries on `GET /appointments`, `GET /clinical-dashboard`, and `GET /dashboard`.
+   - **Audit Trail**: Reflected transparently in patient and doctor history views.
 
 ---
 

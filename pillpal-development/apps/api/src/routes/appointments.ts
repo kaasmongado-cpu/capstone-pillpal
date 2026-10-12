@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { prisma } from "@pillpal/database";
 import { supabase } from "@pillpal/auth";
+import { autoCancelOverdueAppointments } from "../services/appointments.js";
 
 async function getAuthenticatedUser(req: IncomingMessage) {
   const authHeader = req.headers.authorization;
@@ -53,6 +54,25 @@ export async function appointmentsRoute(
 
   const url = new URL(req.url || "/", "http://localhost:4000");
   const pathname = url.pathname;
+
+  // Trigger automated cancellation of any overdue appointments
+  await autoCancelOverdueAppointments();
+
+  // POST /appointments/auto-cancel-overdue - Manual or webhook trigger
+  if (req.method === "POST" && pathname === "/appointments/auto-cancel-overdue") {
+    try {
+      const result = await autoCancelOverdueAppointments();
+      sendJson(res, 200, {
+        message: `Successfully processed overdue appointments.`,
+        cancelledCount: result.count,
+      });
+      return;
+    } catch (err: any) {
+      sendJson(res, 500, { message: err.message || "Failed to process overdue appointments" });
+      return;
+    }
+  }
+
   // 0. GET /appointments/doctors - List active clinical doctors for triage assignment
   if (req.method === "GET" && pathname === "/appointments/doctors") {
     try {

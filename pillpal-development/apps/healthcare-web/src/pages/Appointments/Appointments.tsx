@@ -1473,9 +1473,24 @@ export function Appointments() {
                                 <Clock className="h-3.5 w-3.5 text-slate-400" />
                                 <span>{dateStr} • {timeStr}</span>
                               </div>
-                              <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-                                {apt.status}
+                              <span
+                                className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  apt.status === "COMPLETED"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : apt.status === "CANCELLED"
+                                    ? "bg-amber-100 text-amber-900 border border-amber-200"
+                                    : apt.status === "REJECTED"
+                                    ? "bg-rose-100 text-rose-800"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}
+                              >
+                                {apt.status === "CANCELLED" ? "CANCELLED / OVERDUE" : apt.status}
                               </span>
+                              {apt.status === "CANCELLED" && apt.cancellationReason && (
+                                <p className="text-[10px] text-amber-700 max-w-xs mt-1">
+                                  {apt.cancellationReason}
+                                </p>
+                              )}
                             </div>
 
                             {apt.status === "CONFIRMED" && (

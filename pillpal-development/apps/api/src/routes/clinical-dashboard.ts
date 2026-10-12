@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { prisma } from "@pillpal/database";
 import { supabase } from "@pillpal/auth";
+import { autoCancelOverdueAppointments } from "../services/appointments.js";
 
 async function getAuthenticatedUser(req: IncomingMessage) {
   const authHeader = req.headers.authorization;
@@ -32,6 +33,8 @@ export async function clinicalDashboardRoute(req: IncomingMessage, res: ServerRe
 
   if (req.method === "GET") {
     try {
+      await autoCancelOverdueAppointments();
+
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);

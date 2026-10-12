@@ -49,7 +49,20 @@ export async function medicationsRoute(req: IncomingMessage, res: ServerResponse
 
   // 1. GET /medications
   if (req.method === "GET" && pathname === "/medications") {
+    const whereClause: any = {};
+    if (user.role === "PATIENT") {
+      const patientProfile = await prisma.patientProfile.findUnique({
+        where: { userId: user.id },
+      });
+      if (!patientProfile) {
+        sendJson(res, 200, []);
+        return;
+      }
+      whereClause.patientId = patientProfile.id;
+    }
+
     const prescriptions = await prisma.prescription.findMany({
+      where: whereClause,
       include: {
         patient: {
           include: {

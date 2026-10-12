@@ -18,6 +18,9 @@ import { medicationsRoute } from "./routes/medications.js";
 import { adherenceRoute } from "./routes/adherence.js";
 import { appointmentsRoute } from "./routes/appointments.js";
 import { inventoryRoute } from "./routes/inventory.js";
+import { messagesRoute } from "./routes/messages.js";
+import { patientAuthRoute } from "./routes/patient-auth.js";
+import { autoCancelOverdueAppointments } from "./services/appointments.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -149,6 +152,16 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (req.url?.startsWith("/messages")) {
+    void messagesRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/auth/patient")) {
+    void patientAuthRoute(req, res);
+    return;
+  }
+
   res.writeHead(404, {
     "Content-Type": "application/json",
   });
@@ -164,4 +177,10 @@ server.listen(PORT, () => {
   console.log(
     `PILLPAL API running at http://localhost:${PORT}`,
   );
+
+  // Initial overdue appointment check and ongoing 60-second periodic background check
+  void autoCancelOverdueAppointments();
+  setInterval(() => {
+    void autoCancelOverdueAppointments();
+  }, 60 * 1000);
 });

@@ -47,6 +47,9 @@ export async function getAuthenticatedUser(
     where: {
       supabaseUserId: user.id,
     },
+    include: {
+      patientProfile: true,
+    },
   });
 
   return pillpalUser;
