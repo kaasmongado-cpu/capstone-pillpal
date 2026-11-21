@@ -1,0 +1,111 @@
+[
+  {
+    "genericName": "Amoxicillin",
+    "commonBrands": ["Amoxil", "Himox", "Amoclav"],
+    "standardStrengths": ["250 mg", "500 mg"],
+    "form": "Capsule",
+    "defaultFrequency": "Three times daily",
+    "defaultScheduleTimes": ["08:00 AM", "02:00 PM", "08:00 PM"],
+    "instructions": "Take after meals. Finish the full 7-day course."
+  },
+  {
+    "genericName": "Paracetamol",
+    "commonBrands": ["Biogesic", "Tempra", "Calpol", "Panadol"],
+    "standardStrengths": ["500 mg", "650 mg", "250 mg / 5 mL"],
+    "form": "Tablet",
+    "defaultFrequency": "Every 4 to 6 hours as needed",
+    "defaultScheduleTimes": ["08:00 AM", "01:00 PM", "06:00 PM"],
+    "instructions": "Take for fever or mild pain. Do not exceed 4g in 24 hours."
+  },
+  {
+    "genericName": "Ibuprofen",
+    "commonBrands": ["Advil", "Medicol", "Alaxan"],
+    "standardStrengths": ["200 mg", "400 mg"],
+    "form": "Tablet",
+    "defaultFrequency": "Every 6 to 8 hours as needed",
+    "defaultScheduleTimes": ["08:00 AM", "02:00 PM", "08:00 PM"],
+    "instructions": "Take with food or milk to prevent stomach upset."
+  },
+  {
+    "genericName": "Mefenamic Acid",
+    "commonBrands": ["Ponstan", "Dolfenal", "Gardena"],
+    "standardStrengths": ["250 mg", "500 mg"],
+    "form": "Capsule",
+    "defaultFrequency": "Three times daily after meals",
+    "defaultScheduleTimes": ["08:00 AM", "01:00 PM", "07:00 PM"],
+    "instructions": "Take immediately after meals for pain relief."
+  },
+  {
+    "genericName": "Cetirizine",
+    "commonBrands": ["Virlix", "Allerkid", "Zyrtec", "Alnix"],
+    "standardStrengths": ["10 mg", "5 mg / 5 mL"],
+    "form": "Tablet",
+    "defaultFrequency": "Once daily at bedtime",
+    "defaultScheduleTimes": ["09:00 PM"],
+    "instructions": "May cause drowsiness. Take at night."
+  },
+  {
+    "genericName": "Loratadine",
+    "commonBrands": ["Claritin", "Allerta"],
+    "standardStrengths": ["10 mg"],
+    "form": "Tablet",
+    "defaultFrequency": "Once daily morning",
+    "defaultScheduleTimes": ["08:00 AM"],
+    "instructions": "Non-drowsy allergy relief. Take with water."
+  },
+  {
+    "genericName": "Co-Amoxiclav",
+    "commonBrands": ["Augmentin", "Natravox"],
+    "standardStrengths": ["625 mg", "1 g"],
+    "form": "Tablet",
+    "defaultFrequency": "Twice daily",
+    "defaultScheduleTimes": ["08:00 AM", "08:00 PM"],
+    "instructions": "Take at the start of a meal."
+  },
+  {
+    "genericName": "Ciprofloxacin",
+    "commonBrands": ["Ciprobay", "Cipro"],
+    "standardStrengths": ["500 mg"],
+    "form": "Tablet",
+    "defaultFrequency": "Twice daily",
+    "defaultScheduleTimes": ["08:00 AM", "08:00 PM"],
+    "instructions": "Drink plenty of fluids while taking this medication."
+  },
+  {
+    "genericName": "Omeprazole",
+    "commonBrands": ["Losec", "Omez", "Prilosec"],
+    "standardStrengths": ["20 mg", "40 mg"],
+    "form": "Capsule",
+    "defaultFrequency": "Once daily before breakfast",
+    "defaultScheduleTimes": ["07:30 AM"],
+    "instructions": "Take 30 minutes before first meal of the day."
+  },
+  {
+    "genericName": "Salbutamol",
+    "commonBrands": ["Ventolin", "Asmalin"],
+    "standardStrengths": ["2 mg", "100 mcg / dose"],
+    "form": "Inhaler",
+    "defaultFrequency": "Every 4 to 6 hours as needed",
+    "defaultScheduleTimes": ["08:00 AM", "02:00 PM", "08:00 PM"],
+    "instructions": "Inhale 1-2 puffs for acute shortness of breath."
+  },
+  {
+    "genericName": "Ascorbic Acid (Vitamin C)",
+    "commonBrands": ["Ceelin", "Poten-Cee", "Fern-C"],
+    "standardStrengths": ["500 mg"],
+    "form": "Capsule",
+    "defaultFrequency": "Once daily morning",
+    "defaultScheduleTimes": ["08:00 AM"],
+    "instructions": "Take daily with breakfast to support immune health."
+  },
+  {
+    "genericName": "Hyoscine N-butylbromide",
+    "commonBrands": ["Buscopan"],
+    "standardStrengths": ["10 mg"],
+    "form": "Tablet",
+    "defaultFrequency": "Three times daily as needed",
+    "defaultScheduleTimes": ["08:00 AM", "01:00 PM", "07:00 PM"],
+    "instructions": "Take for abdominal cramps or spasms."
+  }
+]
+

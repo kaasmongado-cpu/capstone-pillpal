@@ -51,7 +51,7 @@ npm:     11.19.0
 * Supabase Auth
 * Prisma ORM
 * NeonDB / PostgreSQL
-* React Native + Expo — **deferred**
+* React Native + Expo — **Active (`apps/patient-mobile`)**
 
 ---
 
@@ -80,7 +80,7 @@ PILLPAL
 │
 └── Mobile
     └── React Native + Expo
-        (Deferred)
+        └── Patient Mobile (apps/patient-mobile)
 ```
 
 ---
@@ -103,6 +103,9 @@ pillpal-development/
 │   ├── patient-web/
 │   │   └── React + Vite
 │   │
+│   ├── patient-mobile/
+│   │   └── React Native + Expo
+│   │
 │   └── api/
 │       └── Node.js + TypeScript
 │
@@ -121,8 +124,6 @@ pillpal-development/
     │
     └── typescript-config/
 ```
-
-> `patient-mobile` is planned but currently deferred.
 
 ---
 

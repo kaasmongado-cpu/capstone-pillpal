@@ -237,6 +237,62 @@ export async function medicationsRoute(req: IncomingMessage, res: ServerResponse
     }
   }
 
+  // POST /medications/patient-regimen (Sync self-scanned medication / OTC from Mobile OCR)
+  if (req.method === "POST" && pathname === "/medications/patient-regimen") {
+    try {
+      const patientProfile = await prisma.patientProfile.findUnique({
+        where: { userId: user.id },
+      });
+
+      if (!patientProfile) {
+        sendJson(res, 400, { message: "Patient profile not found." });
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const { id, name, dosage, form, instructions, frequency, scheduleTimes, startDate } = body;
+
+      if (!name || !dosage) {
+        sendJson(res, 400, { message: "Name and dosage are required." });
+        return;
+      }
+
+      const rx = await prisma.prescription.upsert({
+        where: { id: id || `rx_mobile_${Date.now()}` },
+        create: {
+          id: id || undefined,
+          patientId: patientProfile.id,
+          name,
+          dosage,
+          form: form || "Capsule",
+          instructions: instructions || "Scanned via Mobile OCR",
+          frequency: frequency || "As directed",
+          scheduleTimes: scheduleTimes || ["08:00 AM"],
+          startDate: startDate ? new Date(startDate) : new Date(),
+          status: "ACTIVE",
+        },
+        update: {
+          name,
+          dosage,
+          form: form || "Capsule",
+          instructions: instructions || "Scanned via Mobile OCR",
+          frequency: frequency || "As directed",
+          scheduleTimes: scheduleTimes || ["08:00 AM"],
+        },
+      });
+
+      sendJson(res, 201, {
+        message: "Patient regimen synced successfully",
+        prescription: rx,
+      });
+      return;
+    } catch (err: any) {
+      console.error("POST /medications/patient-regimen error:", err);
+      sendJson(res, 500, { message: err.message || "Failed to sync patient regimen" });
+      return;
+    }
+  }
+
   // 3. POST /medications/:id/dispense (Dispense Dose / Refill to Patient for an existing Prescription)
   const dispensePrescriptionMatch = pathname.match(/^\/medications\/([^/]+)\/dispense$/);
   if (req.method === "POST" && dispensePrescriptionMatch) {

@@ -20,6 +20,7 @@ import { appointmentsRoute } from "./routes/appointments.js";
 import { inventoryRoute } from "./routes/inventory.js";
 import { messagesRoute } from "./routes/messages.js";
 import { patientAuthRoute } from "./routes/patient-auth.js";
+import { ocrRoute } from "./routes/ocr.js";
 import { autoCancelOverdueAppointments } from "./services/appointments.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,12 +36,23 @@ const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
+  "http://localhost:5176",
+  "http://localhost:8081",
+  "http://localhost:19006",
 ];
+
+const isAllowedOrigin = (origin?: string): boolean => {
+  if (!origin) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+};
 
 const server = createServer((req, res) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+  } else if (!origin) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   } else {
     res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
   }
@@ -159,6 +171,11 @@ const server = createServer((req, res) => {
 
   if (req.url?.startsWith("/auth/patient")) {
     void patientAuthRoute(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith("/ocr")) {
+    void ocrRoute(req, res);
     return;
   }
 

@@ -234,7 +234,12 @@ export async function adherenceRoute(req: IncomingMessage, res: ServerResponse) 
   if (req.method === "POST") {
     try {
       const body = await readJsonBody(req);
-      let { patientId, prescriptionId, scheduledTime, takenTime, status, notes } = body;
+      let patientId = body.patientId || body.patient_id;
+      const prescriptionId = body.prescriptionId || body.prescription_id;
+      const scheduledTime = body.scheduledTime || body.scheduled_time;
+      const takenTime = body.takenTime || body.taken_time;
+      const status = body.status;
+      const notes = body.notes;
 
       if (user.role === "PATIENT") {
         if (!user.patientProfile) {
@@ -251,10 +256,33 @@ export async function adherenceRoute(req: IncomingMessage, res: ServerResponse) 
         return;
       }
 
+      // Check if prescription exists in DB
+      let rx = await prisma.prescription.findUnique({
+        where: { id: prescriptionId },
+      });
+
+      // If prescription was created locally via mobile OCR and doesn't exist on server yet,
+      // create a placeholder/self-scanned record so adherence log does not fail foreign key constraint
+      if (!rx) {
+        rx = await prisma.prescription.create({
+          data: {
+            id: prescriptionId,
+            patientId,
+            name: body.medicationName || body.name || "Self-Scanned Medication",
+            dosage: body.dosage || "500 mg",
+            form: body.form || "Capsule",
+            frequency: body.frequency || "As prescribed",
+            scheduleTimes: body.scheduleTimes || body.schedule_times || ["08:00 AM"],
+            instructions: body.instructions || "Scanned via Mobile OCR",
+            status: "ACTIVE",
+          },
+        });
+      }
+
       const log = await prisma.adherenceLog.create({
         data: {
           patientId,
-          prescriptionId,
+          prescriptionId: rx.id,
           scheduledTime: scheduledTime ? new Date(scheduledTime) : new Date(),
           takenTime: takenTime ? new Date(takenTime) : status === "TAKEN" || !status ? new Date() : null,
           status: status || "TAKEN",
