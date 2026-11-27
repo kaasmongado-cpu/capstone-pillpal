@@ -55,6 +55,10 @@ function getAllowedOrigins(): Set<string> {
     "http://localhost:5176",
     "http://localhost:8081",
     "http://localhost:19006",
+    "https://pillpal-patient.vercel.app",
+    "https://pillpal-healthcare.vercel.app",
+    "https://pillpal-admin-web.vercel.app",
+    "https://pillpal-api.vercel.app",
     ...envOrigins,
   ]);
 }
