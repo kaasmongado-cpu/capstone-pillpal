@@ -33,7 +33,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 function normalizeOrigin(url?: string): string | null {
-  const trimmed = (url || "").trim().replace(/\/+$/, "");
+  const trimmed = (url || "").trim().replace(/^["']|["']$/g, "").replace(/\/+$/, "");
   return trimmed ? trimmed : null;
 }
 

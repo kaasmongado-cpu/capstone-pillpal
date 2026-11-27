@@ -19,16 +19,20 @@
   },
   "dependencies": {
     "@pillpal/database": "^1.0.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "@supabase/supabase-js": "^2.115.0",
     "better-auth": "^1.7.28",
     "dotenv": "^16.0.3",
     "nodemailer": "^10.6.1",
+    "pg": "^8.23.0",
     "resend": "^6.40.0",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@types/nodemailer": "^8.0.2",
+    "esbuild": "^0.28.2",
     "tsx": "^4.20.5",
     "typescript": "~6.0.2"
   }

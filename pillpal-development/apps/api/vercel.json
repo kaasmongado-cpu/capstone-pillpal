@@ -1,8 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand": "cd ../.. && npm run generate --workspace=@pillpal/database && npm run build --workspace=api",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "includeFiles": "api/_app.mjs"
     }
   },
   "rewrites": [

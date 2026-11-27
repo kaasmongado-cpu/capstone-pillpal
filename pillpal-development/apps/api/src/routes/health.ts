@@ -12,6 +12,8 @@ export function healthRoute(
     JSON.stringify({
       status: "ok",
       service: "PILLPAL API",
+      databaseConfigured: Boolean((process.env.DATABASE_URL || "").trim()),
+      authUrlConfigured: Boolean((process.env.BETTER_AUTH_URL || "").trim()),
     }),
   );
 }

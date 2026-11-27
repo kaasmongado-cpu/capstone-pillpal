@@ -9,7 +9,7 @@ const dbEntry = path.resolve(apiRoot, "../../packages/database/src/index.ts");
 
 await build({
   entryPoints: [path.resolve(apiRoot, "src/app.ts")],
-  outfile: path.resolve(apiRoot, "dist/vercel-bundle.mjs"),
+  outfile: path.resolve(apiRoot, "api/_app.mjs"),
   bundle: true,
   platform: "node",
   format: "esm",

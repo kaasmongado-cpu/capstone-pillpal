@@ -20,7 +20,17 @@ dotenv.config({
 const requireEmailVerification =
   process.env.REQUIRE_EMAIL_VERIFICATION !== "false";
 
-const normalizeUrl = (u?: string) => (u || "").trim().replace(/\/+$/, "");
+const normalizeUrl = (u?: string) => {
+  const cleaned = (u || "").trim().replace(/^["']|["']$/g, "").replace(/\/+$/, "");
+  return cleaned;
+};
+
+function resolveBetterAuthBaseUrl(): string {
+  const raw = normalizeUrl(process.env.BETTER_AUTH_URL);
+  if (!raw) return "http://localhost:4000";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
 
 const trustedOrigins = [
   "http://localhost:4000",
@@ -55,7 +65,7 @@ const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 export const isGoogleAuthEnabled = Boolean(googleClientId && googleClientSecret);
 
 export const auth = betterAuth({
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:4000",
+  baseURL: resolveBetterAuthBaseUrl(),
   secret:
     process.env.BETTER_AUTH_SECRET ||
     "pillpal_dev_fallback_secret_change_in_production_32chars",
