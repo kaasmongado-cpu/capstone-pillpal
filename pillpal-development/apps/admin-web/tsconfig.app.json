@@ -27,5 +27,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "../api/src/scripts"]
+  "include": ["src"]
 }
