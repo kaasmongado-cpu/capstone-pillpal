@@ -70,7 +70,59 @@ export async function initDatabase(): Promise<void> {
 }
 
 export async function getLocalPrescriptions(): Promise<LocalPrescription[]> {
-  return readStore<LocalPrescription>(RX_KEY).filter((rx) => rx.status === "ACTIVE");
+  const all = readStore<LocalPrescription>(RX_KEY);
+  const filtered = all.filter((rx) => rx.id !== "rx_demo_1" && !rx.id.startsWith("rx_demo"));
+  if (filtered.length !== all.length) {
+    writeStore(RX_KEY, filtered);
+  }
+  return filtered.filter((rx) => rx.status === "ACTIVE");
+}
+
+export async function getAllLocalPrescriptions(): Promise<LocalPrescription[]> {
+  const all = readStore<LocalPrescription>(RX_KEY);
+  const filtered = all.filter((rx) => rx.id !== "rx_demo_1" && !rx.id.startsWith("rx_demo"));
+  if (filtered.length !== all.length) {
+    writeStore(RX_KEY, filtered);
+  }
+  return filtered;
+}
+
+export async function deleteLocalPrescription(id: string): Promise<void> {
+  const existing = readStore<LocalPrescription>(RX_KEY).filter((rx) => rx.id !== id);
+  writeStore(RX_KEY, existing);
+  const logs = readStore<LocalAdherenceLog>(LOGS_KEY).filter((log) => log.prescription_id !== id);
+  writeStore(LOGS_KEY, logs);
+}
+
+export async function clearAllLocalPrescriptions(): Promise<void> {
+  writeStore(RX_KEY, []);
+  writeStore(LOGS_KEY, []);
+}
+
+export async function reconcileServerPrescriptions(serverRxs: any[]): Promise<void> {
+  const serverIds = new Set(serverRxs.map((r) => r.id));
+  const current = readStore<LocalPrescription>(RX_KEY);
+
+  // Keep unsynced local drafts + new server prescriptions
+  const unsyncedDrafts = current.filter((r) => r.is_local_draft === 1 && !serverIds.has(r.id));
+  const newServerList: LocalPrescription[] = serverRxs.map((rx) => ({
+    id: rx.id,
+    patient_id: rx.patientId,
+    doctor_id: rx.doctorId ?? null,
+    doctor_name: rx.prescribedBy || (rx.doctor ? `${rx.doctor.firstName} ${rx.doctor.lastName}` : "CSU Clinic"),
+    name: rx.name,
+    dosage: rx.dosage,
+    form: rx.form || "Capsule",
+    instructions: rx.instructions || null,
+    frequency: rx.frequency,
+    schedule_times: rx.scheduleTimes || [],
+    start_date: rx.startDate,
+    end_date: rx.endDate ?? null,
+    status: rx.status || "ACTIVE",
+    is_local_draft: 0,
+  }));
+
+  writeStore(RX_KEY, [...unsyncedDrafts, ...newServerList]);
 }
 
 export async function saveLocalPrescription(
@@ -100,6 +152,7 @@ export async function saveLocalPrescription(
         frequency: rx.frequency,
         scheduleTimes: rx.schedule_times,
         startDate: rx.start_date,
+        endDate: rx.end_date ?? null,
       }),
       idempotency_key: `prescription_${rx.id}`,
       created_at: Date.now(),
@@ -109,22 +162,40 @@ export async function saveLocalPrescription(
   }
 }
 
-export async function logDoseLocally(log: Omit<LocalAdherenceLog, "sync_status">): Promise<void> {
-  const logs = readStore<LocalAdherenceLog>(LOGS_KEY);
-  logs.unshift({ ...log, sync_status: "PENDING" });
+export async function logDoseLocally(
+  log: Omit<LocalAdherenceLog, "sync_status">,
+  options: { enqueueOutbox?: boolean } = { enqueueOutbox: true },
+): Promise<void> {
+  const shouldEnqueue = options.enqueueOutbox !== false;
+  const logs = readStore<LocalAdherenceLog>(LOGS_KEY).filter((l) => l.id !== log.id);
+  logs.unshift({ ...log, sync_status: shouldEnqueue ? "PENDING" : "SYNCED" });
   writeStore(LOGS_KEY, logs);
 
-  const outbox = readStore<OutboxItem>(OUTBOX_KEY);
-  outbox.push({
-    id: log.id,
-    endpoint: "/adherence",
-    http_method: "POST",
-    payload: JSON.stringify(log),
-    idempotency_key: `adherence_${log.id}`,
-    created_at: Date.now(),
-    retry_count: 0,
-  });
-  writeStore(OUTBOX_KEY, outbox);
+  if (shouldEnqueue) {
+    const outbox = readStore<OutboxItem>(OUTBOX_KEY).filter((x) => x.id !== log.id);
+    outbox.push({
+      id: log.id,
+      endpoint: "/adherence",
+      http_method: "POST",
+      payload: JSON.stringify({
+        prescriptionId: log.prescription_id,
+        scheduledTime: log.scheduled_time,
+        takenTime: log.taken_time ?? null,
+        status: log.status,
+        notes: log.notes ?? null,
+      }),
+      idempotency_key: `adherence_${log.id}`,
+      created_at: Date.now(),
+      retry_count: 0,
+    });
+    writeStore(OUTBOX_KEY, outbox);
+  }
+}
+
+export async function upsertSyncedServerLog(
+  log: Omit<LocalAdherenceLog, "sync_status">,
+): Promise<void> {
+  await logDoseLocally(log, { enqueueOutbox: false });
 }
 
 export async function getTodayLocalLogs(): Promise<LocalAdherenceLog[]> {
@@ -180,6 +251,8 @@ export interface LocalAppointment {
   providerSpecialization?: string | null;
   telehealthUrl?: string | null;
   clinicalNotes?: string | null;
+  rejectionReason?: string | null;
+  cancellationReason?: string | null;
   checkedInAt?: string | null;
 }
 
@@ -210,6 +283,17 @@ export async function getCachedJson<T>(cacheKey: string): Promise<T | null> {
 export async function saveCachedJson(cacheKey: string, value: unknown): Promise<void> {
   try {
     globalThis.localStorage?.setItem(`pillpal_kv_${cacheKey}`, JSON.stringify(value));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export async function clearLocalDatabase(): Promise<void> {
+  try {
+    globalThis.localStorage?.removeItem(RX_KEY);
+    globalThis.localStorage?.removeItem(LOGS_KEY);
+    globalThis.localStorage?.removeItem(OUTBOX_KEY);
+    globalThis.localStorage?.removeItem(APPTS_KEY);
   } catch {
     // ignore storage errors
   }

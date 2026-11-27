@@ -6,7 +6,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient } from "../generated/prisma/client.js";
 
-// Load the root .env file.
+// Load root .env when present locally (no-op in Vercel production where env vars are injected)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -20,12 +20,23 @@ if (!connectionString) {
   throw new Error("Missing DATABASE_URL");
 }
 
-const adapter = new PrismaPg({
-  connectionString,
-});
+const globalForPrisma = globalThis as unknown as {
+  pillpalPrisma?: PrismaClient;
+};
 
-export const prisma = new PrismaClient({
-  adapter,
-});
+function createPrismaClient(): PrismaClient {
+  const maxConnections = Number(process.env.DB_POOL_MAX || (process.env.VERCEL ? 5 : 10));
+  const adapter = new PrismaPg({
+    connectionString,
+    max: Number.isFinite(maxConnections) && maxConnections > 0 ? maxConnections : 5,
+  });
+  return new PrismaClient({ adapter });
+}
+
+export const prisma = globalForPrisma.pillpalPrisma ?? createPrismaClient();
+
+if (!globalForPrisma.pillpalPrisma) {
+  globalForPrisma.pillpalPrisma = prisma;
+}
 
 export * from "../generated/prisma/client.js";

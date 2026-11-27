@@ -1,56 +1,49 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-import dotenv from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-
+import type { IncomingMessage } from "node:http";
+import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "@pillpal/database";
+import { auth } from "../lib/auth.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({
-  path: path.resolve(__dirname, "../../.env"),
-});
-
-const supabaseUrl = process.env.SUPABASE_URL;
-
-const supabasePublishableKey =
-  process.env.SUPABASE_PUBLISHABLE_KEY;
-
-if (!supabaseUrl) {
-  throw new Error("Missing SUPABASE_URL");
-}
-
-if (!supabasePublishableKey) {
-  throw new Error("Missing SUPABASE_PUBLISHABLE_KEY");
-}
-
-const supabase = createClient(
-  supabaseUrl,
-  supabasePublishableKey,
-);
-
+/**
+ * Resolve the authenticated PillPal User (with patientProfile) from either:
+ * - A raw Bearer access token string, OR
+ * - A Node.js IncomingMessage (supports Authorization: Bearer <token> or session cookies)
+ */
 export async function getAuthenticatedUser(
-  accessToken: string,
+  tokenOrReq: string | IncomingMessage,
 ) {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(accessToken);
+  let headers: Headers;
 
-  if (error || !user) {
-    return null;
+  if (typeof tokenOrReq === "string") {
+    const cleanToken = tokenOrReq.replace(/^Bearer\s+/i, "").trim();
+    if (!cleanToken) {
+      return null;
+    }
+    headers = new Headers({
+      authorization: `Bearer ${cleanToken}`,
+    });
+  } else {
+    headers = fromNodeHeaders(tokenOrReq.headers);
   }
 
-  const pillpalUser = await prisma.user.findUnique({
-    where: {
-      supabaseUserId: user.id,
-    },
-    include: {
-      patientProfile: true,
-    },
-  });
+  try {
+    const session = await auth.api.getSession({ headers });
 
-  return pillpalUser;
+    if (!session?.user?.id) {
+      return null;
+    }
+
+    const pillpalUser = await prisma.user.findUnique({
+      where: {
+        id: session.user.id,
+      },
+      include: {
+        patientProfile: true,
+      },
+    });
+
+    return pillpalUser;
+  } catch (err) {
+    console.error("getAuthenticatedUser error:", err);
+    return null;
+  }
 }

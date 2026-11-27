@@ -4,11 +4,13 @@
     "slug": "pillpal-patient",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "scheme": "pillpal",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
-      "backgroundColor": "#10b981",
+      "image": "./assets/splash-icon.png",
+      "backgroundColor": "#ffffff",
       "resizeMode": "contain"
     },
     "ios": {
@@ -21,16 +23,21 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#10b981"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
       },
       "package": "ph.edu.carsu.pillpal.patient",
       "permissions": [
         "CAMERA",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM"
       ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -40,6 +47,12 @@
         "expo-camera",
         {
           "cameraPermission": "Allow PILLPAL to access your camera to scan medicine bottles and prescription slips."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PILLPAL to access your photo library to upload prescription slips and medicine bottle photos."
         }
       ],
       [

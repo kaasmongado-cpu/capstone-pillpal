@@ -153,7 +153,7 @@ export function Settings() {
                 Auth Provider
               </div>
               <p className="text-xs text-muted-foreground">
-                Supabase Auth (JWT bearer token validation on every administrative request).
+                Better Auth (Bearer session token validation on every administrative request).
               </p>
             </div>
 

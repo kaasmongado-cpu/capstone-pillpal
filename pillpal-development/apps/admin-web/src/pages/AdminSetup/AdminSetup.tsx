@@ -148,8 +148,12 @@ export function AdminSetup() {
       <div className="w-full max-w-lg space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-md text-primary-foreground font-bold text-xl">
-            P
+          <div className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white border border-slate-200/80 p-1.5 shadow-md">
+            <img
+              src="/pillpal-logo.png"
+              alt="PILLPAL Logo"
+              className="h-full w-full object-contain"
+            />
           </div>
 
           <div>
@@ -157,7 +161,7 @@ export function AdminSetup() {
               Initial Platform Setup
             </h1>
             <p className="text-xs text-muted-foreground font-medium mt-0.5">
-              Caraga State University • Clinic Management System
+              CSU University Center for Health and Wellness
             </p>
           </div>
         </div>
@@ -182,7 +186,7 @@ export function AdminSetup() {
                     Administrator Account Created!
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Your account has been configured in Supabase and the NeonDB registry.
+                    Your account has been configured in Better Auth and the NeonDB registry.
                   </p>
                 </div>
 

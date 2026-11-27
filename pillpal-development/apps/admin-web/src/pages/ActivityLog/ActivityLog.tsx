@@ -204,8 +204,8 @@ export function ActivityLog() {
       </Card>
 
       {/* Log Feed */}
-      <Card className="border-border/60 shadow-sm">
-        <CardHeader className="pb-3">
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/60">
           <CardTitle className="text-base">System Events ({filteredLogs.length})</CardTitle>
           <CardDescription>
             Chronological audit log recorded across management sessions.
@@ -239,7 +239,12 @@ export function ActivityLog() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="System Events log list"
+              className="card-scroll-area max-h-[480px] overflow-y-auto divide-y divide-border/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
               {filteredLogs.map((log) => (
                 <div
                   key={log.id}

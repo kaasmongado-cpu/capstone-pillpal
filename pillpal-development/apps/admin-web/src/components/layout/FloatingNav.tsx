@@ -4,7 +4,6 @@ import {
   Bell,
   LayoutDashboard,
   Menu,
-  PanelLeftOpen,
   Settings,
   User,
   Users,
@@ -14,13 +13,11 @@ import { fetchWithAuth } from "@/lib/api";
 
 type FloatingNavProps = {
   isCollapsed?: boolean;
-  onExpandSidebar?: () => void;
   onOpenMobileMenu?: () => void;
 };
 
 export function FloatingNav({
   isCollapsed = false,
-  onExpandSidebar,
   onOpenMobileMenu,
 }: FloatingNavProps) {
   const location = useLocation();
@@ -75,27 +72,6 @@ export function FloatingNav({
       }`}
     >
       <div className="flex items-center gap-1 sm:gap-1.5 rounded-2xl border border-border/80 bg-background/90 p-1.5 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10">
-        {/* Desktop Expand Button (Shown on desktop when collapsed) */}
-        {isCollapsed && onExpandSidebar && (
-          <button
-            type="button"
-            onClick={onExpandSidebar}
-            title="Expand Full Sidebar (Ctrl+B)"
-            aria-label="Expand Full Sidebar"
-            className="hidden lg:flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-all duration-150 active:scale-95"
-          >
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <PanelLeftOpen className="h-4 w-4" />
-            </div>
-            <span className="text-[11px]">Sidebar</span>
-          </button>
-        )}
-
-        {/* Separator on desktop when collapsed */}
-        {isCollapsed && onExpandSidebar && (
-          <div className="hidden lg:block h-6 w-px bg-border/60 mx-0.5" />
-        )}
-
         {/* Core Nav Items */}
         {navItems.map((item) => {
           const Icon = item.icon;

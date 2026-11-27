@@ -7,6 +7,7 @@ import { HeartPulse } from "lucide-react";
 export function PatientGuard() {
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
@@ -60,6 +61,15 @@ export function PatientGuard() {
           return;
         }
 
+        if (user.role === "PATIENT" && !user.patientProfile) {
+          if (isMounted) {
+            setNeedsOnboarding(true);
+            setAuthorized(false);
+            setLoading(false);
+          }
+          return;
+        }
+
         if (isMounted) {
           setAuthorized(true);
           setLoading(false);
@@ -86,9 +96,13 @@ export function PatientGuard() {
           <HeartPulse className="h-7 w-7 stroke-[2.2]" />
         </div>
         <p className="text-sm font-semibold text-slate-700">Connecting to CSU Patient Portal...</p>
-        <p className="text-xs text-slate-400 mt-1">Caraga State University Health Services</p>
+        <p className="text-xs text-slate-400 mt-1">CSU University Center for Health and Wellness</p>
       </div>
     );
+  }
+
+  if (needsOnboarding) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   if (!authorized) {

@@ -1,24 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { prisma } from "@pillpal/database";
-import { supabase } from "@pillpal/auth";
-
-async function getAuthenticatedUser(req: IncomingMessage) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return null;
-  }
-  const token = authHeader.replace("Bearer ", "").trim();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(token);
-  if (error || !user) return null;
-
-  return prisma.user.findUnique({
-    where: { supabaseUserId: user.id },
-    include: { patientProfile: true },
-  });
-}
+import { getAuthenticatedUser } from "../services/auth.js";
 
 function readJsonBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -534,24 +516,6 @@ export async function messagesRoute(req: IncomingMessage, res: ServerResponse) {
         },
         data: { lastReadAt: new Date() },
       });
-
-      // Broadcast event to Supabase Realtime channel
-      try {
-        const channel = supabase.channel(`conversation:${conversationId}`);
-        void channel.send({
-          type: "broadcast",
-          event: "new_message",
-          payload: {
-            id: createdMsg.id,
-            conversationId: createdMsg.conversationId,
-            senderId: createdMsg.senderId,
-            content: createdMsg.content,
-            createdAt: createdMsg.createdAt.toISOString(),
-          },
-        });
-      } catch {
-        // Fallback polling will maintain real-time sync
-      }
 
       sendJson(res, 201, {
         id: createdMsg.id,

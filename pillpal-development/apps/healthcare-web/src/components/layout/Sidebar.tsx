@@ -6,14 +6,12 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
-  PanelLeftClose,
   Pill,
-  Stethoscope,
   User,
   Users,
   X,
 } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { getSession, signOut } from "@pillpal/auth";
 import { fetchWithAuth } from "@/lib/api";
 
@@ -32,21 +30,21 @@ type NavGroup = {
 type SidebarProps = {
   isOpen?: boolean;
   isCollapsed?: boolean;
-  onToggleCollapse?: () => void;
   onClose?: () => void;
 };
 
 export function Sidebar({
   isOpen = false,
   isCollapsed = false,
-  onToggleCollapse,
   onClose,
 }: SidebarProps) {
   const navigate = useNavigate();
-  const [providerEmail, setProviderEmail] = useState("provider@csu.edu.ph");
-  const [providerName, setProviderName] = useState("Healthcare Provider");
+  const location = useLocation();
+  const [providerEmail, setProviderEmail] = useState("");
+  const [providerName, setProviderName] = useState("");
   const [providerRole, setProviderRole] = useState<"DOCTOR" | "HEALTH_STAFF">("DOCTOR");
   const [specialization, setSpecialization] = useState("");
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     async function loadUser() {
@@ -58,17 +56,35 @@ export function Sidebar({
           setProviderEmail(session.user.email);
         }
 
-        const meRes = await fetchWithAuth("/me");
+        const [meRes, convoRes] = await Promise.all([
+          fetchWithAuth("/me"),
+          fetchWithAuth("/messages/conversations"),
+        ]);
+
         if (meRes.ok) {
           const user = await meRes.json();
-          if (user.firstName && user.lastName) {
-            setProviderName(`${user.role === "DOCTOR" ? "Dr. " : ""}${user.firstName} ${user.lastName}`);
+          if (user.firstName || user.lastName) {
+            setProviderName(
+              `${user.role === "DOCTOR" ? "Dr. " : ""}${user.firstName || ""} ${user.lastName || ""}`.trim(),
+            );
+          }
+          if (user.email) {
+            setProviderEmail(user.email);
           }
           if (user.role) {
             setProviderRole(user.role);
           }
-          if (user.specialization) {
-            setSpecialization(user.specialization);
+          setSpecialization(user.specialization || "");
+        }
+
+        if (convoRes.ok) {
+          const convos = await convoRes.json();
+          if (Array.isArray(convos)) {
+            const totalUnread = convos.reduce(
+              (acc: number, c: any) => acc + Number(c?.unreadCount || 0),
+              0,
+            );
+            setUnreadMessages(totalUnread);
           }
         }
       } catch {
@@ -76,7 +92,16 @@ export function Sidebar({
       }
     }
     void loadUser();
-  }, []);
+    const handleRefresh = () => {
+      void loadUser();
+    };
+    window.addEventListener("pillpal:profile-updated", handleRefresh);
+    window.addEventListener("pillpal:messages-updated", handleRefresh);
+    return () => {
+      window.removeEventListener("pillpal:profile-updated", handleRefresh);
+      window.removeEventListener("pillpal:messages-updated", handleRefresh);
+    };
+  }, [location.pathname]);
 
   async function handleSignOut() {
     try {
@@ -129,6 +154,7 @@ export function Sidebar({
           label: "Messages",
           path: "/app/messages",
           icon: MessageSquare,
+          badge: unreadMessages > 0 ? unreadMessages : undefined,
         },
         {
           label: "Profile",
@@ -146,8 +172,12 @@ export function Sidebar({
         <div className="flex items-center justify-between pb-6">
           <div className="flex items-center gap-3">
             {/* Logo Badge */}
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#0284c7] border border-sky-100 shadow-2xs">
-              <Stethoscope className="h-6 w-6 stroke-[2.2]" />
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white border border-slate-200/80 p-1 shadow-2xs">
+              <img
+                src="/pillpal-logo.png"
+                alt="PILLPAL Logo"
+                className="h-full w-full object-contain"
+              />
             </div>
 
             {/* Brand Title & Subtitle */}
@@ -155,37 +185,23 @@ export function Sidebar({
               <h2 className="truncate text-sm font-bold tracking-tight text-slate-900">
                 pillpal.csu.edu
               </h2>
-              <p className="text-xs text-slate-400 font-normal">
-                Healthcare
+              <p className="text-[11px] leading-tight text-slate-400 font-normal">
+                CSU University Center for Health and Wellness
               </p>
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="flex items-center gap-1">
-            {onToggleCollapse && (
-              <button
-                type="button"
-                onClick={onToggleCollapse}
-                title="Collapse sidebar"
-                aria-label="Collapse sidebar"
-                className="hidden lg:flex rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            )}
-
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close sidebar"
-                className="lg:hidden rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            )}
-          </div>
+          {/* Mobile Close Control */}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close sidebar"
+              className="lg:hidden rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         {/* 2. NAVIGATION LINKS */}

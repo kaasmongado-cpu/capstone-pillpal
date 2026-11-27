@@ -17,12 +17,21 @@ import {
   ShieldAlert,
   ClipboardList,
   UserCheck,
+  RefreshCw,
+  Ban,
+  UserX,
 } from "lucide-react";
 import { fetchWithAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DOSAGE_FORMS,
+  FREQUENCY_PRESETS,
+  checkAllergyConflict,
+  hasDocumentedDrugAllergy,
+} from "@/lib/clinical";
 
 type AppointmentItem = {
   id: string;
@@ -141,6 +150,13 @@ export function Appointments() {
   const [declineReason, setDeclineReason] = useState("");
 
   // Doctor Consultation Workspace form
+  const [vitals, setVitals] = useState({
+    bp: "",
+    hr: "",
+    temp: "",
+    spo2: "",
+    weight: "",
+  });
   const [soapNotes, setSoapNotes] = useState({
     subjective: "",
     objective: "",
@@ -148,17 +164,18 @@ export function Appointments() {
     plan: "",
   });
   const [prescribeMed, setPrescribeMed] = useState(false);
+  const [allergyOverrideConfirmed, setAllergyOverrideConfirmed] = useState(false);
   const [rxData, setRxData] = useState({
     inventoryId: "",
     name: "",
     dosage: "",
     form: "Tablet",
-    instructions: "Take 1 tablet after meals",
+    instructions: "",
     frequency: "Twice daily",
-    scheduleTimes: "08:00 AM, 06:00 PM",
+    scheduleTimes: "08:00 AM, 08:00 PM",
     durationDays: 7,
-    dispenseFromStock: true,
-    dispenseQuantity: 14,
+    dispenseFromStock: false,
+    dispenseQuantity: 1,
   });
 
   async function loadInitialData() {
@@ -197,9 +214,6 @@ export function Appointments() {
             medicalConditions: p.medicalConditions,
           }))
         );
-        if (patData.length > 0 && !walkInData.patientId) {
-          setWalkInData((prev) => ({ ...prev, patientId: patData[0].id }));
-        }
       }
 
       if (invRes.ok) {
@@ -227,11 +241,17 @@ export function Appointments() {
     void loadInitialData();
   }, []);
 
-  // Handle manual role toggle for previewing / testing
-  function handleToggleRole(newRole: "DOCTOR" | "HEALTH_STAFF") {
-    setActiveRole(newRole);
-    setActiveTab(newRole === "HEALTH_STAFF" ? "staff-triage" : "doctor-queue");
-  }
+  const consultAllergyConflict = useMemo(
+    () =>
+      prescribeMed
+        ? checkAllergyConflict(rxData.name, selectedAppointment?.allergies)
+        : { hasConflict: false, matchedTerms: [], warningMessage: "" },
+    [prescribeMed, rxData.name, selectedAppointment?.allergies],
+  );
+
+  useEffect(() => {
+    setAllergyOverrideConfirmed(false);
+  }, [rxData.name, selectedAppointment?.id, prescribeMed]);
 
   // Filtered queries for Health Staff View
   const pendingTriageRequests = useMemo(
@@ -281,11 +301,16 @@ export function Appointments() {
   async function handleCreateWalkIn(e: React.FormEvent) {
     e.preventDefault();
     setModalError("");
+    if (!walkInData.patientId) {
+      setModalError("Please select a CSU patient.");
+      return;
+    }
     setModalLoading(true);
 
     try {
       const res = await fetchWithAuth("/appointments", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           patientId: walkInData.patientId,
           scheduledAt: new Date().toISOString(),
@@ -306,7 +331,7 @@ export function Appointments() {
         setModalSuccess("");
         setIsWalkInModalOpen(false);
         setWalkInData({
-          patientId: patients[0]?.id || "",
+          patientId: "",
           reason: "",
           type: "IN_PERSON",
           providerId: doctors[0]?.id || "",
@@ -413,27 +438,78 @@ export function Appointments() {
     }
   }
 
+  async function handleCancelAppointment(apt: AppointmentItem) {
+    if (
+      !window.confirm(
+        `Cancel appointment for ${apt.patientName} (${apt.idNumber})?`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetchWithAuth(`/appointments/${apt.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cancellationReason: "Cancelled by CSU Health Services Clinic.",
+        }),
+      });
+      if (res.ok) {
+        void loadInitialData();
+      }
+    } catch (err) {
+      console.error("Failed to cancel appointment:", err);
+    }
+  }
+
+  async function handleMarkNoShow(apt: AppointmentItem) {
+    if (
+      !window.confirm(
+        `Mark ${apt.patientName} (${apt.idNumber}) as No-Show for this appointment?`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetchWithAuth(`/appointments/${apt.id}/no-show`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: "Patient did not arrive for scheduled clinic visit.",
+        }),
+      });
+      if (res.ok) {
+        void loadInitialData();
+      }
+    } catch (err) {
+      console.error("Failed to mark appointment as no-show:", err);
+    }
+  }
+
   function openConsultationWorkspace(apt: AppointmentItem) {
     setSelectedAppointment(apt);
+    setModalError("");
+    setModalSuccess("");
+    setVitals({ bp: "", hr: "", temp: "", spo2: "", weight: "" });
     setSoapNotes({
-      subjective: `Patient presents with: ${apt.reason}. ${apt.patientNotes ? `Notes: ${apt.patientNotes}` : ""}`,
-      objective: "Vitals: BP 120/80 mmHg, HR 72 bpm, O2 Sat 98%, Temp 36.8°C. General appearance stable.",
-      assessment: `${apt.reason} - Evaluated`,
-      plan: "Maintain therapy regimen. Advised adequate hydration and rest.",
+      subjective: `Chief Complaint: ${apt.reason}${apt.patientNotes ? `\nPatient Notes: ${apt.patientNotes}` : ""}`,
+      objective: "",
+      assessment: "",
+      plan: "",
     });
     setPrescribeMed(false);
-    const firstStock = inventoryList[0];
+    setAllergyOverrideConfirmed(false);
     setRxData({
-      inventoryId: firstStock?.id || "",
-      name: firstStock?.name || "Amoxicillin",
-      dosage: firstStock?.strength || "500 mg",
-      form: firstStock?.form || "Capsule",
-      instructions: "Take 1 capsule every 8 hours after meals",
-      frequency: "Three times daily",
-      scheduleTimes: "08:00 AM, 02:00 PM, 08:00 PM",
+      inventoryId: "",
+      name: "",
+      dosage: "",
+      form: "Tablet",
+      instructions: "",
+      frequency: "Twice daily",
+      scheduleTimes: "08:00 AM, 08:00 PM",
       durationDays: 7,
-      dispenseFromStock: true,
-      dispenseQuantity: firstStock ? Math.min(14, firstStock.currentStock || 14) : 14,
+      dispenseFromStock: false,
+      dispenseQuantity: 1,
     });
     setIsConsultModalOpen(true);
   }
@@ -459,37 +535,67 @@ export function Appointments() {
     e.preventDefault();
     if (!selectedAppointment) return;
     setModalError("");
+
+    if (prescribeMed && consultAllergyConflict.hasConflict && !allergyOverrideConfirmed) {
+      setModalError(
+        "Drug-allergy contraindication detected. Acknowledge clinical review before completing this consultation.",
+      );
+      return;
+    }
+
     setModalLoading(true);
 
     try {
-      const clinicalNotesFormatted = `
-[SOAP CLINICAL NOTE]
-• Subjective: ${soapNotes.subjective}
-• Objective: ${soapNotes.objective}
-• Assessment: ${soapNotes.assessment}
-• Plan: ${soapNotes.plan}
-      `.trim();
+      const vitalsParts = [
+        vitals.bp.trim() ? `BP ${vitals.bp.trim()} mmHg` : "",
+        vitals.hr.trim() ? `HR ${vitals.hr.trim()} bpm` : "",
+        vitals.temp.trim() ? `Temp ${vitals.temp.trim()} °C` : "",
+        vitals.spo2.trim() ? `SpO2 ${vitals.spo2.trim()}%` : "",
+        vitals.weight.trim() ? `Weight ${vitals.weight.trim()} kg` : "",
+      ].filter(Boolean);
+
+      const objectiveCombined = [
+        vitalsParts.length > 0 ? `Vitals: ${vitalsParts.join(", ")}` : "",
+        soapNotes.objective.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const clinicalNotesFormatted = [
+        "[SOAP CLINICAL NOTE]",
+        `• Subjective: ${soapNotes.subjective.trim() || "Not recorded"}`,
+        `• Objective: ${objectiveCombined || "Not recorded"}`,
+        `• Assessment: ${soapNotes.assessment.trim() || "Not recorded"}`,
+        `• Plan: ${soapNotes.plan.trim() || "Not recorded"}`,
+      ].join("\n");
 
       const payload: any = {
         clinicalNotes: clinicalNotesFormatted,
       };
 
-      if (prescribeMed && rxData.name && rxData.dosage) {
+      if (prescribeMed && rxData.name.trim() && rxData.dosage.trim()) {
         payload.prescription = {
-          name: rxData.name,
-          dosage: rxData.dosage,
+          name: rxData.name.trim(),
+          dosage: rxData.dosage.trim(),
           form: rxData.form,
-          instructions: rxData.instructions,
+          instructions: rxData.instructions.trim() || undefined,
           frequency: rxData.frequency,
-          scheduleTimes: rxData.scheduleTimes.split(",").map((s) => s.trim()),
+          scheduleTimes: rxData.scheduleTimes
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
           durationDays: Number(rxData.durationDays || 7),
           inventoryItemId: rxData.inventoryId || undefined,
-          dispenseQuantity: rxData.dispenseFromStock ? Number(rxData.dispenseQuantity || 0) : 0,
+          dispenseQuantity:
+            rxData.dispenseFromStock && rxData.inventoryId
+              ? Number(rxData.dispenseQuantity || 0)
+              : 0,
         };
       }
 
       const res = await fetchWithAuth(`/appointments/${selectedAppointment.id}/complete`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -498,12 +604,12 @@ export function Appointments() {
         throw new Error(err.message || "Failed to complete consultation");
       }
 
-      setModalSuccess("Consultation recorded and clinical prescription issued!");
+      setModalSuccess("Consultation recorded and clinical chart saved!");
       setTimeout(() => {
         setModalSuccess("");
         setIsConsultModalOpen(false);
         void loadInitialData();
-      }, 1200);
+      }, 1000);
     } catch (err: any) {
       setModalError(err.message || "Error completing consultation.");
     } finally {
@@ -512,6 +618,14 @@ export function Appointments() {
   }
 
   function handleInventoryPick(invId: string) {
+    if (!invId) {
+      setRxData((prev) => ({
+        ...prev,
+        inventoryId: "",
+        dispenseFromStock: false,
+      }));
+      return;
+    }
     const item = inventoryList.find((i) => i.id === invId);
     if (item) {
       setRxData((prev) => ({
@@ -519,8 +633,8 @@ export function Appointments() {
         inventoryId: item.id,
         name: item.name,
         dosage: item.strength,
-        form: item.form,
-        dispenseQuantity: Math.min(14, item.currentStock > 0 ? item.currentStock : 14),
+        form: item.form || prev.form,
+        dispenseQuantity: Math.min(14, item.currentStock > 0 ? item.currentStock : 1),
       }));
     }
   }
@@ -553,37 +667,26 @@ export function Appointments() {
           </p>
         </div>
 
-        {/* View Switcher Toggle & Quick Actions */}
+        {/* Quick Actions (Role-Locked to Authenticated Clinician) */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Role Preview Switcher */}
-          <div className="flex items-center rounded-xl bg-slate-100 p-1 text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => handleToggleRole("DOCTOR")}
-              className={`rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
-                activeRole === "DOCTOR"
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              Doctor View
-            </button>
-            <button
-              type="button"
-              onClick={() => handleToggleRole("HEALTH_STAFF")}
-              className={`rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
-                activeRole === "HEALTH_STAFF"
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              Health Staff View
-            </button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadInitialData()}
+            disabled={loading}
+            className="gap-1.5 rounded-xl text-xs font-bold cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
 
           {activeRole === "HEALTH_STAFF" ? (
             <Button
-              onClick={() => setIsWalkInModalOpen(true)}
+              onClick={() => {
+                setModalError("");
+                setModalSuccess("");
+                setIsWalkInModalOpen(true);
+              }}
               className="gap-1.5 rounded-xl text-xs font-bold bg-[#0284c7] hover:bg-[#0369a1] text-white shadow-xs cursor-pointer"
             >
               <Plus className="h-4 w-4" />
@@ -591,6 +694,7 @@ export function Appointments() {
             </Button>
           ) : (
             <Button
+              disabled={doctorWaitingAndActiveQueue.length === 0}
               onClick={() => {
                 const firstWaiting = doctorWaitingAndActiveQueue.find((a) => a.status === "WAITING");
                 if (firstWaiting) {
@@ -963,13 +1067,35 @@ export function Appointments() {
                               </span>
                             </div>
 
-                            <Button
-                              size="sm"
-                              onClick={() => handleLobbyCheckIn(apt.id)}
-                              className="rounded-xl text-xs font-bold bg-[#0284c7] hover:bg-[#0369a1] text-white shadow-xs cursor-pointer"
-                            >
-                              Mark In Lobby
-                            </Button>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Button
+                                size="sm"
+                                onClick={() => handleLobbyCheckIn(apt.id)}
+                                className="rounded-xl text-xs font-bold bg-[#0284c7] hover:bg-[#0369a1] text-white shadow-xs cursor-pointer"
+                              >
+                                Mark In Lobby
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                title="Mark patient as No-Show"
+                                onClick={() => void handleMarkNoShow(apt)}
+                                className="rounded-xl text-xs font-semibold text-amber-700 border-amber-200 hover:bg-amber-50 cursor-pointer gap-1"
+                              >
+                                <UserX className="h-3.5 w-3.5" />
+                                No-Show
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Cancel appointment"
+                                onClick={() => void handleCancelAppointment(apt)}
+                                className="rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 cursor-pointer gap-1"
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                                Cancel
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -1425,6 +1551,7 @@ export function Appointments() {
                     <option value="COMPLETED">COMPLETED</option>
                     <option value="REJECTED">REJECTED</option>
                     <option value="CANCELLED">CANCELLED</option>
+                    <option value="NO_SHOW">NO_SHOW</option>
                   </select>
                 </div>
               </div>
@@ -1478,29 +1605,54 @@ export function Appointments() {
                                   apt.status === "COMPLETED"
                                     ? "bg-emerald-100 text-emerald-800"
                                     : apt.status === "CANCELLED"
-                                    ? "bg-amber-100 text-amber-900 border border-amber-200"
-                                    : apt.status === "REJECTED"
-                                    ? "bg-rose-100 text-rose-800"
-                                    : "bg-slate-100 text-slate-700"
+                                      ? "bg-amber-100 text-amber-900 border border-amber-200"
+                                      : apt.status === "NO_SHOW"
+                                        ? "bg-orange-100 text-orange-900 border border-orange-200"
+                                        : apt.status === "REJECTED"
+                                          ? "bg-rose-100 text-rose-800"
+                                          : "bg-slate-100 text-slate-700"
                                 }`}
                               >
-                                {apt.status === "CANCELLED" ? "CANCELLED / OVERDUE" : apt.status}
+                                {apt.status === "CANCELLED"
+                                  ? "CANCELLED / OVERDUE"
+                                  : apt.status === "NO_SHOW"
+                                    ? "NO SHOW"
+                                    : apt.status}
                               </span>
-                              {apt.status === "CANCELLED" && apt.cancellationReason && (
-                                <p className="text-[10px] text-amber-700 max-w-xs mt-1">
-                                  {apt.cancellationReason}
-                                </p>
-                              )}
+                              {(apt.status === "CANCELLED" || apt.status === "NO_SHOW") &&
+                                apt.cancellationReason && (
+                                  <p className="text-[10px] text-amber-700 max-w-xs mt-1">
+                                    {apt.cancellationReason}
+                                  </p>
+                                )}
                             </div>
 
                             {apt.status === "CONFIRMED" && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleLobbyCheckIn(apt.id)}
-                                className="rounded-xl text-xs font-bold bg-[#0284c7] hover:bg-[#0369a1] text-white shadow-xs cursor-pointer"
-                              >
-                                Check In
-                              </Button>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleLobbyCheckIn(apt.id)}
+                                  className="rounded-xl text-xs font-bold bg-[#0284c7] hover:bg-[#0369a1] text-white shadow-xs cursor-pointer"
+                                >
+                                  Check In
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleMarkNoShow(apt)}
+                                  className="rounded-xl text-xs font-semibold text-amber-700 border-amber-200 hover:bg-amber-50 cursor-pointer"
+                                >
+                                  No-Show
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => void handleCancelAppointment(apt)}
+                                  className="rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
                             )}
                           </div>
                         </CardContent>
@@ -1554,12 +1706,16 @@ export function Appointments() {
 
             <form onSubmit={handleCreateWalkIn} className="space-y-4 text-xs">
               <div className="space-y-1">
-                <Label className="text-xs">Select CSU Patient</Label>
+                <Label className="text-xs">Select CSU Patient *</Label>
                 <select
+                  required
                   value={walkInData.patientId}
                   onChange={(e) => setWalkInData({ ...walkInData, patientId: e.target.value })}
                   className="w-full h-9 rounded-xl border border-slate-200 px-2.5 text-xs bg-white text-slate-800"
                 >
+                  <option value="" disabled>
+                    -- Select CSU Patient --
+                  </option>
                   {patients.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.idNumber} - {p.department})
@@ -1596,15 +1752,10 @@ export function Appointments() {
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs">Consultation Type</Label>
-                  <select
-                    value={walkInData.type}
-                    onChange={(e) => setWalkInData({ ...walkInData, type: e.target.value as any })}
-                    className="w-full h-9 rounded-xl border border-slate-200 px-2.5 text-xs bg-white text-slate-800"
-                  >
-                    <option value="IN_PERSON">In-Person Clinic Visit</option>
-                    <option value="TELEHEALTH">Virtual Teleconsult</option>
-                  </select>
+                  <Label className="text-xs">Consultation Format</Label>
+                  <div className="flex h-9 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700">
+                    In-Person Clinic Visit
+                  </div>
                 </div>
               </div>
 
@@ -1855,9 +2006,15 @@ export function Appointments() {
                 </p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase">Known Allergies</span>
-                <p className="font-semibold text-red-600">
-                  {selectedAppointment.allergies || "No known allergies (NKA)"}
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Known Drug Allergies</span>
+                <p
+                  className={`font-semibold ${
+                    hasDocumentedDrugAllergy(selectedAppointment.allergies)
+                      ? "text-red-600"
+                      : "text-slate-700"
+                  }`}
+                >
+                  {selectedAppointment.allergies || "Not screened yet"}
                 </p>
               </div>
               <div>
@@ -1869,6 +2026,66 @@ export function Appointments() {
             </div>
 
             <form onSubmit={handleCompleteConsult} className="space-y-5 text-xs">
+              {/* Structured Vital Signs (Empty by Default — No Fabricated Readings) */}
+              <div className="space-y-2.5 rounded-2xl border border-slate-200/80 bg-slate-50/50 p-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-emerald-600" />
+                    <h3 className="font-black text-slate-900">Vital Signs (Optional)</h3>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    Leave blank if not measured
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-slate-500">BP (mmHg)</Label>
+                    <Input
+                      placeholder="e.g. 120/80"
+                      value={vitals.bp}
+                      onChange={(e) => setVitals({ ...vitals, bp: e.target.value })}
+                      className="h-8 rounded-lg text-xs bg-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-slate-500">HR (bpm)</Label>
+                    <Input
+                      placeholder="e.g. 74"
+                      value={vitals.hr}
+                      onChange={(e) => setVitals({ ...vitals, hr: e.target.value })}
+                      className="h-8 rounded-lg text-xs bg-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-slate-500">Temp (°C)</Label>
+                    <Input
+                      placeholder="e.g. 36.8"
+                      value={vitals.temp}
+                      onChange={(e) => setVitals({ ...vitals, temp: e.target.value })}
+                      className="h-8 rounded-lg text-xs bg-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-slate-500">SpO2 (%)</Label>
+                    <Input
+                      placeholder="e.g. 98"
+                      value={vitals.spo2}
+                      onChange={(e) => setVitals({ ...vitals, spo2: e.target.value })}
+                      className="h-8 rounded-lg text-xs bg-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-slate-500">Weight (kg)</Label>
+                    <Input
+                      placeholder="e.g. 58"
+                      value={vitals.weight}
+                      onChange={(e) => setVitals({ ...vitals, weight: e.target.value })}
+                      className="h-8 rounded-lg text-xs bg-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* SOAP Notes Section */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -1878,36 +2095,40 @@ export function Appointments() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs font-bold text-slate-700">Subjective (Symptoms / Patient History)</Label>
+                    <Label className="text-xs font-bold text-slate-700">Subjective (Symptoms / History)</Label>
                     <textarea
                       rows={2}
+                      placeholder="Enter patient symptoms, onset, duration, and history..."
                       value={soapNotes.subjective}
                       onChange={(e) => setSoapNotes({ ...soapNotes, subjective: e.target.value })}
                       className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs font-bold text-slate-700">Objective (Vitals & Physical Exam)</Label>
+                    <Label className="text-xs font-bold text-slate-700">Objective (Physical Exam Findings)</Label>
                     <textarea
                       rows={2}
+                      placeholder="Enter physical examination findings..."
                       value={soapNotes.objective}
                       onChange={(e) => setSoapNotes({ ...soapNotes, objective: e.target.value })}
                       className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs font-bold text-slate-700">Assessment (Diagnosis / Clinical Impression)</Label>
+                    <Label className="text-xs font-bold text-slate-700">Assessment (Diagnosis / Impression)</Label>
                     <textarea
                       rows={2}
+                      placeholder="Enter clinical impression or working diagnosis..."
                       value={soapNotes.assessment}
                       onChange={(e) => setSoapNotes({ ...soapNotes, assessment: e.target.value })}
                       className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs font-bold text-slate-700">Plan (Treatment & Follow-up)</Label>
+                    <Label className="text-xs font-bold text-slate-700">Plan (Treatment &amp; Follow-up)</Label>
                     <textarea
                       rows={2}
+                      placeholder="Enter treatment plan, counseling, and follow-up instructions..."
                       value={soapNotes.plan}
                       onChange={(e) => setSoapNotes({ ...soapNotes, plan: e.target.value })}
                       className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800"
@@ -1929,7 +2150,7 @@ export function Appointments() {
                       type="checkbox"
                       checked={prescribeMed}
                       onChange={(e) => setPrescribeMed(e.target.checked)}
-                      className="rounded border-sky-300 text-[#0284c7]"
+                      className="rounded border-sky-300 accent-[#0284c7]"
                     />
                     Issue New Prescription
                   </label>
@@ -1937,16 +2158,48 @@ export function Appointments() {
 
                 {prescribeMed && (
                   <div className="space-y-3 pt-2 border-t border-sky-100/80 animate-in fade-in">
+                    {/* Real-Time Allergy Contraindication Alert */}
+                    {consultAllergyConflict.hasConflict && (
+                      <div className="rounded-xl border-2 border-red-400 bg-red-50 p-3.5 space-y-2 text-xs text-red-900">
+                        <div className="flex items-start gap-2">
+                          <ShieldAlert className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-black text-red-800 uppercase tracking-wide text-[11px]">
+                              Drug-Allergy Contraindication Alert
+                            </p>
+                            <p className="mt-0.5 leading-relaxed font-medium">
+                              {consultAllergyConflict.warningMessage}
+                            </p>
+                          </div>
+                        </div>
+                        <label className="flex items-start gap-2 pt-1.5 border-t border-red-200 cursor-pointer font-bold text-red-900 text-[11px]">
+                          <input
+                            type="checkbox"
+                            checked={allergyOverrideConfirmed}
+                            onChange={(e) => setAllergyOverrideConfirmed(e.target.checked)}
+                            className="mt-0.5 h-3.5 w-3.5 rounded accent-red-600"
+                          />
+                          <span>
+                            I have clinically reviewed this allergy risk and confirm I still want to
+                            prescribe this medication.
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
                     {/* Live Clinic Stock Picker */}
                     <div className="space-y-1">
                       <Label className="text-[11px] text-slate-600 font-semibold">
-                        Pick from Available Clinic Pharmacy Inventory:
+                        Pick from Available Clinic Pharmacy Inventory (Optional):
                       </Label>
                       <select
                         value={rxData.inventoryId}
                         onChange={(e) => handleInventoryPick(e.target.value)}
                         className="w-full h-9 rounded-xl border border-slate-200 px-2.5 text-xs bg-white text-slate-800 font-medium"
                       >
+                        <option value="">
+                          -- Optional: select clinic stock to auto-fill medication --
+                        </option>
                         {inventoryList.map((item) => (
                           <option key={item.id} value={item.id}>
                             {item.name} {item.brandName ? `(${item.brandName})` : ""} - {item.strength} [{item.form}] (Stock: {item.currentStock})
@@ -1955,24 +2208,40 @@ export function Appointments() {
                       </select>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-[11px]">Medication Name</Label>
+                        <Label className="text-[11px]">Medication Name *</Label>
                         <Input
                           required={prescribeMed}
+                          placeholder="e.g. Paracetamol"
                           value={rxData.name}
                           onChange={(e) => setRxData({ ...rxData, name: e.target.value })}
                           className="rounded-xl text-xs bg-white"
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px]">Dosage & Strength</Label>
+                        <Label className="text-[11px]">Dosage *</Label>
                         <Input
                           required={prescribeMed}
+                          placeholder="e.g. 500 mg"
                           value={rxData.dosage}
                           onChange={(e) => setRxData({ ...rxData, dosage: e.target.value })}
                           className="rounded-xl text-xs bg-white"
                         />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Form</Label>
+                        <select
+                          value={rxData.form}
+                          onChange={(e) => setRxData({ ...rxData, form: e.target.value })}
+                          className="w-full h-9 rounded-xl border border-slate-200 px-2 text-xs bg-white text-slate-800"
+                        >
+                          {DOSAGE_FORMS.map((f) => (
+                            <option key={f} value={f}>
+                              {f}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[11px]">Duration (Days)</Label>
@@ -1989,22 +2258,45 @@ export function Appointments() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-[11px]">Dosage Instructions</Label>
-                        <Input
-                          value={rxData.instructions}
-                          onChange={(e) => setRxData({ ...rxData, instructions: e.target.value })}
-                          className="rounded-xl text-xs bg-white"
-                        />
+                        <Label className="text-[11px]">Dosing Frequency</Label>
+                        <select
+                          value={rxData.frequency}
+                          onChange={(e) => {
+                            const nextFreq = e.target.value;
+                            setRxData({
+                              ...rxData,
+                              frequency: nextFreq,
+                              scheduleTimes: FREQUENCY_PRESETS[nextFreq] || rxData.scheduleTimes,
+                            });
+                          }}
+                          className="w-full h-9 rounded-xl border border-slate-200 px-2.5 text-xs bg-white text-slate-800"
+                        >
+                          {Object.keys(FREQUENCY_PRESETS).map((freq) => (
+                            <option key={freq} value={freq}>
+                              {freq}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px]">Frequency & Schedule Times</Label>
+                        <Label className="text-[11px]">Schedule Times</Label>
                         <Input
                           value={rxData.scheduleTimes}
                           onChange={(e) => setRxData({ ...rxData, scheduleTimes: e.target.value })}
-                          placeholder="e.g. 08:00 AM, 06:00 PM"
+                          placeholder="e.g. 08:00 AM, 08:00 PM"
                           className="rounded-xl text-xs bg-white font-mono"
                         />
                       </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-[11px]">Dosage Instructions (Sig.)</Label>
+                      <Input
+                        placeholder="e.g. Take 1 tablet after meals with a full glass of water"
+                        value={rxData.instructions}
+                        onChange={(e) => setRxData({ ...rxData, instructions: e.target.value })}
+                        className="rounded-xl text-xs bg-white"
+                      />
                     </div>
 
                     {/* Direct Dispensing from Clinic Stock */}
@@ -2017,7 +2309,7 @@ export function Appointments() {
                             onChange={(e) =>
                               setRxData({ ...rxData, dispenseFromStock: e.target.checked })
                             }
-                            className="rounded border-sky-300 text-[#0284c7]"
+                            className="rounded border-sky-300 accent-[#0284c7]"
                           />
                           Hand over initial medication supply from clinic stock to patient now
                         </label>
@@ -2057,7 +2349,12 @@ export function Appointments() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={modalLoading}
+                  disabled={
+                    modalLoading ||
+                    (prescribeMed &&
+                      consultAllergyConflict.hasConflict &&
+                      !allergyOverrideConfirmed)
+                  }
                   className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-xs font-black text-white cursor-pointer shadow-xs gap-1.5"
                 >
                   <CheckCircle2 className="h-4 w-4" />

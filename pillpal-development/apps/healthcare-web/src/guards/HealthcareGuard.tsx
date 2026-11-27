@@ -87,7 +87,7 @@ export function HealthcareGuard() {
           <Stethoscope className="h-7 w-7 stroke-[2.2]" />
         </div>
         <p className="text-sm font-semibold text-slate-700">Verifying Clinical Credentials...</p>
-        <p className="text-xs text-slate-400 mt-1">CSU Healthcare Provider Portal</p>
+        <p className="text-xs text-slate-400 mt-1">CSU University Center for Health and Wellness</p>
       </div>
     );
   }

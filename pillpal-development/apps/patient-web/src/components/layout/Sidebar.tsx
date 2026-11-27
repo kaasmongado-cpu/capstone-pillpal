@@ -6,8 +6,6 @@ import {
   MessageSquare,
   User,
   LogOut,
-  HeartPulse,
-  PhoneCall,
   Activity,
   ShieldCheck,
 } from "lucide-react";
@@ -37,7 +35,7 @@ const NAV_ITEMS = [
     name: "Appointments",
     path: "/app/appointments",
     icon: Calendar,
-    description: "Clinic visits & telehealth",
+    description: "Clinic visits & consultations",
   },
   {
     name: "Messages",
@@ -59,15 +57,17 @@ interface SidebarProps {
   department?: string;
   allergies?: string | null;
   bloodType?: string | null;
+  unreadMessagesCount?: number;
   onCloseMobile?: () => void;
 }
 
 export function Sidebar({
   patientName = "CSU Patient",
-  idNumber = "2022-04912",
-  department = "College of Nursing",
-  allergies = "No Known Drug Allergies (NKA)",
-  bloodType = "O+",
+  idNumber = "",
+  department = "",
+  allergies = "None recorded",
+  bloodType = "Not set",
+  unreadMessagesCount = 0,
   onCloseMobile,
 }: SidebarProps) {
   const location = useLocation();
@@ -83,8 +83,12 @@ export function Sidebar({
       <div className="space-y-6">
         {/* Brand Header */}
         <div className="flex items-center gap-3 px-2 pt-1">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/20">
-            <HeartPulse className="h-5 w-5" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white border border-slate-200/80 p-1 shadow-xs">
+            <img
+              src="/pillpal-logo.png"
+              alt="PILLPAL Logo"
+              className="h-full w-full object-contain"
+            />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
@@ -95,7 +99,9 @@ export function Sidebar({
                 PATIENT
               </span>
             </div>
-            <p className="text-[11px] font-medium text-slate-400">CSU Health Portal</p>
+            <p className="text-[11px] font-medium leading-tight text-slate-400">
+              CSU University Center for Health and Wellness
+            </p>
           </div>
         </div>
 
@@ -128,8 +134,20 @@ export function Sidebar({
                     isActive ? "text-white" : "text-slate-400 group-hover:text-emerald-600"
                   )}
                 />
-                <div className="flex flex-col">
+                <div className="flex flex-1 items-center justify-between gap-2">
                   <span>{item.name}</span>
+                  {item.path === "/app/messages" && unreadMessagesCount > 0 && (
+                    <span
+                      className={cn(
+                        "flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[10px] font-black",
+                        isActive
+                          ? "bg-white text-emerald-700"
+                          : "bg-emerald-600 text-white",
+                      )}
+                    >
+                      {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+                    </span>
+                  )}
                 </div>
               </Link>
             );
@@ -146,7 +164,7 @@ export function Sidebar({
               Health Card
             </span>
             <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-black text-emerald-700 shadow-2xs">
-              {bloodType || "O+"}
+              {bloodType || "Not set"}
             </span>
           </div>
 
@@ -158,18 +176,23 @@ export function Sidebar({
 
           <div className="mt-2.5 pt-2 border-t border-emerald-200/60 flex items-center justify-between text-[10px]">
             <span className="text-slate-500">Allergies:</span>
-            <span className="font-bold text-red-600 truncate max-w-[110px]" title={allergies || "NKA"}>
-              {allergies || "NKA"}
-            </span>
-          </div>
-        </div>
-
-        {/* CSU Clinic Support Info */}
-        <div className="flex items-center gap-2 rounded-xl bg-slate-50 p-2.5 text-[11px] text-slate-500">
-          <PhoneCall className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-          <div className="truncate">
-            <span className="font-bold text-slate-700">CSU Clinic: </span>
-            <span>(085) 341-2786</span>
+            {(() => {
+              const raw = (allergies || "").trim();
+              const isNka =
+                !raw ||
+                /^(none|none recorded|n\/a|nka|no known|no known drug allergies)/i.test(raw);
+              return (
+                <span
+                  className={cn(
+                    "font-bold truncate max-w-[110px]",
+                    isNka ? "text-emerald-700" : "text-red-600",
+                  )}
+                  title={raw || "No Known Drug Allergies (NKA)"}
+                >
+                  {raw || "NKA"}
+                </span>
+              );
+            })()}
           </div>
         </div>
 

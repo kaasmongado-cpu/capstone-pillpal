@@ -1,43 +1,55 @@
-import { createClient } from "@supabase/supabase-js";
-
 declare const process: { env?: Record<string, string | undefined> } | undefined;
 
 const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
 const proc = (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process;
 
-const expoSupabaseUrl =
-  typeof process !== "undefined" && process.env ? process.env.EXPO_PUBLIC_SUPABASE_URL : undefined;
-const expoSupabaseKey =
-  (typeof process !== "undefined" && process.env ? process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY : undefined) ||
-  (typeof process !== "undefined" && process.env ? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY : undefined);
+const TOKEN_STORAGE_KEY = "pillpal_better_auth_token";
+let memoryToken: string | null = null;
 
-const supabaseUrl =
-  metaEnv?.VITE_SUPABASE_URL ||
-  expoSupabaseUrl ||
-  proc?.env?.VITE_SUPABASE_URL ||
-  proc?.env?.EXPO_PUBLIC_SUPABASE_URL ||
-  proc?.env?.SUPABASE_URL ||
-  "";
+export function getAuthApiUrl(): string {
+  const expoApiUrl =
+    typeof process !== "undefined" && process.env
+      ? process.env.EXPO_PUBLIC_API_URL
+      : undefined;
 
-const supabasePublishableKey =
-  metaEnv?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  expoSupabaseKey ||
-  proc?.env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  proc?.env?.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  proc?.env?.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  proc?.env?.SUPABASE_ANON_KEY ||
-  proc?.env?.SUPABASE_SERVICE_ROLE_KEY ||
-  "";
+  const base =
+    metaEnv?.VITE_API_URL ||
+    expoApiUrl ||
+    proc?.env?.VITE_API_URL ||
+    proc?.env?.EXPO_PUBLIC_API_URL ||
+    proc?.env?.BETTER_AUTH_URL ||
+    "http://localhost:4000";
 
-if (!supabaseUrl) {
-  throw new Error("Missing VITE_SUPABASE_URL");
+  return base.replace(/\/+$/, "");
 }
 
-if (!supabasePublishableKey) {
-  throw new Error("Missing VITE_SUPABASE_PUBLISHABLE_KEY");
+export function getStoredAuthToken(): string | null {
+  if (memoryToken) return memoryToken;
+  try {
+    const stored = globalThis.localStorage?.getItem(TOKEN_STORAGE_KEY);
+    if (stored) {
+      memoryToken = stored;
+      return stored;
+    }
+  } catch {
+    // React Native native runtime has no localStorage; token is hydrated via setStoredAuthToken
+  }
+  return null;
 }
 
-export const supabase = createClient(
-  supabaseUrl,
-  supabasePublishableKey,
-);
+export function setStoredAuthToken(token: string | null): void {
+  memoryToken = token;
+  try {
+    if (token) {
+      globalThis.localStorage?.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      globalThis.localStorage?.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore on native runtimes without localStorage
+  }
+}
+
+export function clearStoredAuthToken(): void {
+  setStoredAuthToken(null);
+}

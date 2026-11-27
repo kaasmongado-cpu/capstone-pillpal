@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Send,
   Stethoscope,
-  Sparkles,
   CheckCheck,
   Plus,
   AlertCircle,
@@ -54,6 +54,9 @@ type EligibleClinician = {
 };
 
 export function Messages() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -61,6 +64,7 @@ export function Messages() {
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   // New Chat Modal state
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
@@ -69,6 +73,7 @@ export function Messages() {
   const [loadingClinicians, setLoadingClinicians] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pendingPrefillRef = useRef<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -82,7 +87,11 @@ export function Messages() {
         setConversations(data);
         if (data.length > 0 && (!activeConversationId || !maintainActive)) {
           setActiveConversationId(data[0]!.id);
+        } else if (data.length === 0 && pendingPrefillRef.current) {
+          setIsNewChatModalOpen(true);
+          void loadEligibleClinicians();
         }
+        window.dispatchEvent(new Event("pillpal:messages-updated"));
       }
     } catch (err) {
       console.error("Failed to load patient conversations:", err);
@@ -98,6 +107,12 @@ export function Messages() {
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages || []);
+        if (isInitial) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === convoId ? { ...c, unreadCount: 0 } : c)),
+          );
+          window.dispatchEvent(new Event("pillpal:messages-updated"));
+        }
       }
     } catch (err) {
       console.error("Failed to load messages:", err);
@@ -120,6 +135,16 @@ export function Messages() {
       setLoadingClinicians(false);
     }
   }
+
+  // Consume medication question handoff from Medications page
+  useEffect(() => {
+    const state = location.state as { prefillPrompt?: string } | null;
+    if (state?.prefillPrompt) {
+      setNewMessage(state.prefillPrompt);
+      pendingPrefillRef.current = state.prefillPrompt;
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
     void loadConversations(false);
@@ -145,28 +170,38 @@ export function Messages() {
     if (!newMessage.trim() || !activeConversationId || sending) return;
 
     setSending(true);
+    setSendError(null);
     const content = newMessage.trim();
     setNewMessage("");
 
     try {
-      const res = await fetchWithAuth(`/messages/conversations/${activeConversationId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content }),
-      });
+      const res = await fetchWithAuth(
+        `/messages/conversations/${activeConversationId}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({ content }),
+        },
+      );
 
-      if (res.ok) {
-        const createdMsg: MessageItem = await res.json();
-        setMessages((prev) => [...prev, createdMsg]);
-        void loadConversations(true);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        throw new Error(errBody?.message || "Message could not be delivered.");
       }
-    } catch (err) {
-      console.error("Failed to send message:", err);
+
+      const createdMsg: MessageItem = await res.json();
+      setMessages((prev) => [...prev, createdMsg]);
+      pendingPrefillRef.current = null;
+      void loadConversations(true);
+    } catch (err: any) {
+      setNewMessage(content);
+      setSendError(err?.message || "Unable to send message. Please check your connection.");
     } finally {
       setSending(false);
     }
   }
 
   async function handleStartNewChat(clinicianId: string) {
+    setSendError(null);
     try {
       const res = await fetchWithAuth("/messages/conversations", {
         method: "POST",
@@ -181,6 +216,7 @@ export function Messages() {
       }
     } catch (err) {
       console.error("Failed to start chat with clinician:", err);
+      setSendError("Unable to open conversation with this clinician.");
     }
   }
 
@@ -213,7 +249,8 @@ export function Messages() {
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Direct, confidential communication with your assigned CSU physicians and clinic healthcare staff.
+            Direct, confidential communication with your assigned CSU physicians and clinic
+            healthcare staff.
           </p>
         </div>
 
@@ -241,12 +278,17 @@ export function Messages() {
             </div>
 
             {loading ? (
-              <div className="py-8 text-center text-xs text-slate-400">Loading contacts...</div>
+              <div className="space-y-2 p-2 animate-pulse">
+                <div className="h-14 rounded-2xl bg-slate-100" />
+                <div className="h-14 rounded-2xl bg-slate-100" />
+              </div>
             ) : conversations.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400 space-y-2">
                 <MessageSquare className="h-8 w-8 text-slate-300 mx-auto" />
                 <p className="font-semibold text-slate-600">No conversations yet</p>
-                <p className="text-[11px]">Click "Message Doctor or Staff" above to start a consultation.</p>
+                <p className="text-[11px]">
+                  Click &quot;Message Doctor or Staff&quot; above to start a consultation.
+                </p>
               </div>
             ) : (
               conversations.map((convo) => {
@@ -311,7 +353,7 @@ export function Messages() {
           <div className="pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between text-[10px] text-slate-400 px-2 py-1">
               <span>CSU Infirmary Hours:</span>
-              <span className="font-bold text-emerald-700">Mon-Fri 8AM-5PM</span>
+              <span className="font-bold text-emerald-700">Mon–Fri 8AM–5PM</span>
             </div>
           </div>
         </Card>
@@ -348,19 +390,26 @@ export function Messages() {
               <div className="bg-amber-50/80 border-b border-amber-200 px-4 py-2 text-[11px] text-amber-900 flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
                 <span>
-                  <strong>Non-Emergency Desk:</strong> For severe symptoms or acute emergencies, call 911 or CSU Emergency Hotline (+63 917 123 4567) immediately.
+                  <strong>Non-Emergency Desk:</strong> For severe symptoms or acute emergencies,
+                  call 911 or the CSU Infirmary Emergency Hotline <strong>(085) 341-2786</strong>{" "}
+                  immediately.
                 </span>
               </div>
 
               {/* Messages Feed */}
               <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/50">
                 {messagesLoading ? (
-                  <div className="py-12 text-center text-xs text-slate-400">Loading messages...</div>
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    Loading messages...
+                  </div>
                 ) : messages.length === 0 ? (
                   <div className="py-16 text-center text-xs text-slate-400 space-y-2">
-                    <Sparkles className="h-8 w-8 text-emerald-400 mx-auto" />
-                    <p className="font-bold text-slate-700">Start your consultation with {activeConvo.otherParticipant.name}</p>
-                    <p className="text-[11px]">Choose a quick prompt below or type your medical question.</p>
+                    <p className="font-bold text-slate-700">
+                      Start your consultation with {activeConvo.otherParticipant.name}
+                    </p>
+                    <p className="text-[11px]">
+                      Choose a quick prompt below or type your medical question.
+                    </p>
                   </div>
                 ) : (
                   messages.map((m) => (
@@ -403,25 +452,44 @@ export function Messages() {
 
               {/* Consultation Presets & Input Bar */}
               <div className="p-3 border-t border-slate-100 bg-white space-y-2">
+                {sendError && (
+                  <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-[11px] font-semibold text-red-700 flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sendError}</span>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
-                  <span className="text-[10px] font-bold text-slate-400 shrink-0">Inquiry Presets:</span>
+                  <span className="text-[10px] font-bold text-slate-400 shrink-0">
+                    Inquiry Presets:
+                  </span>
                   <button
                     type="button"
-                    onClick={() => handleQuickPrompt("Doctor, is it okay to take this dose after breakfast?")}
+                    onClick={() =>
+                      handleQuickPrompt("Doctor, is it okay to take this dose after breakfast?")
+                    }
                     className="shrink-0 px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition-colors cursor-pointer"
                   >
                     Take with meals?
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleQuickPrompt("Doctor, I'm feeling mild dizziness after taking my medicine.")}
+                    onClick={() =>
+                      handleQuickPrompt(
+                        "Doctor, I'm feeling mild dizziness after taking my medicine.",
+                      )
+                    }
                     className="shrink-0 px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition-colors cursor-pointer"
                   >
                     Report side effect
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleQuickPrompt("Hello, I would like to request a prescription refill checkup.")}
+                    onClick={() =>
+                      handleQuickPrompt(
+                        "Hello, I would like to request a prescription refill checkup.",
+                      )
+                    }
                     className="shrink-0 px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition-colors cursor-pointer"
                   >
                     Refill inquiry
@@ -451,7 +519,8 @@ export function Messages() {
               <Stethoscope className="h-12 w-12 text-slate-300" />
               <h3 className="text-sm font-black text-slate-700">No Conversation Selected</h3>
               <p className="max-w-xs text-slate-500">
-                Select an attending clinician on the left or click "Message Doctor or Staff" to begin.
+                Select an attending clinician on the left or click &quot;Message Doctor or
+                Staff&quot; to begin.
               </p>
             </div>
           )}
@@ -461,11 +530,13 @@ export function Messages() {
       {/* MODAL: START CHAT WITH CSU CLINICIAN */}
       {isNewChatModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 max-h-[85vh] flex flex-col">
+          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm font-black text-slate-900">Contact CSU Health Staff</h3>
-                <p className="text-[11px] text-slate-500">Select an active university physician or infirmary staff member.</p>
+                <p className="text-[11px] text-slate-500">
+                  Select an active university physician or infirmary staff member.
+                </p>
               </div>
               <button
                 type="button"
@@ -488,9 +559,13 @@ export function Messages() {
 
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100 pr-1 space-y-1">
               {loadingClinicians ? (
-                <div className="p-8 text-center text-xs text-slate-400">Loading clinic directory...</div>
+                <div className="p-8 text-center text-xs text-slate-400">
+                  Loading clinic directory...
+                </div>
               ) : filteredClinicians.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-400">No clinicians matching search.</div>
+                <div className="p-8 text-center text-xs text-slate-400">
+                  No clinicians matching search.
+                </div>
               ) : (
                 filteredClinicians.map((clinician) => (
                   <div
@@ -499,12 +574,17 @@ export function Messages() {
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
-                        {clinician.role === "DOCTOR" ? <Stethoscope className="h-4 w-4" /> : clinician.name[0]}
+                        {clinician.role === "DOCTOR" ? (
+                          <Stethoscope className="h-4 w-4" />
+                        ) : (
+                          clinician.name[0]
+                        )}
                       </div>
                       <div>
                         <p className="text-xs font-bold text-slate-900">{clinician.name}</p>
                         <p className="text-[10px] text-slate-400 font-semibold">
-                          {clinician.specialization} • {clinician.role === "DOCTOR" ? "Physician" : "Staff"}
+                          {clinician.specialization} •{" "}
+                          {clinician.role === "DOCTOR" ? "Physician" : "Staff"}
                         </p>
                       </div>
                     </div>

@@ -4,8 +4,11 @@ import {
   dequeueOutbox,
   markLogSynced,
   saveLocalPrescription,
+  reconcileServerPrescriptions,
+  getAllLocalPrescriptions,
   OutboxItem,
 } from "../db/database";
+import { syncPrescriptionAlarms } from "../notifications/alarms";
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
@@ -15,6 +18,25 @@ const listeners = new Set<SyncListener>();
 
 let isOnlineState = true;
 let pendingCountState = 0;
+
+type UnreadListener = (unreadCount: number) => void;
+const unreadListeners = new Set<UnreadListener>();
+let unreadCountState = 0;
+
+export function subscribeToUnreadMessages(listener: UnreadListener): () => void {
+  unreadListeners.add(listener);
+  listener(unreadCountState);
+  return () => {
+    unreadListeners.delete(listener);
+  };
+}
+
+export function publishUnreadMessages(count: number): void {
+  unreadCountState = Math.max(0, count);
+  for (const listener of unreadListeners) {
+    listener(unreadCountState);
+  }
+}
 
 export function subscribeToSyncStatus(listener: SyncListener): () => void {
   listeners.add(listener);
@@ -86,35 +108,33 @@ export async function flushOutbox(authToken?: string): Promise<{ flushed: number
 /**
  * Pull latest active prescriptions from server and cache to local SQLite
  */
-export async function pullServerPrescriptions(authToken: string): Promise<void> {
-  if (!isOnlineState) return;
+export async function pullServerPrescriptions(authToken?: string): Promise<void> {
+  if (!isOnlineState && typeof navigator !== "undefined" && !navigator.onLine) return;
 
   try {
+    let token = authToken;
+    if (!token) {
+      // Dynamic import to prevent circular dependency
+      const { getAuthToken } = await import("../auth/session");
+      token = (await getAuthToken()) || undefined;
+    }
+    if (!token) return;
+
     const res = await fetch(`${API_BASE_URL}/medications`, {
       headers: {
-        Authorization: `Bearer ${authToken}`,
+        Authorization: `Bearer ${token}`,
       },
     });
 
     if (res.ok) {
       const serverPrescriptions = await res.json();
-      for (const rx of serverPrescriptions) {
-        await saveLocalPrescription({
-          id: rx.id,
-          patient_id: rx.patientId,
-          doctor_id: rx.doctorId,
-          doctor_name: rx.doctor ? `${rx.doctor.firstName} ${rx.doctor.lastName}` : null,
-          name: rx.name,
-          dosage: rx.dosage,
-          form: rx.form,
-          instructions: rx.instructions,
-          frequency: rx.frequency,
-          schedule_times: rx.scheduleTimes || [],
-          start_date: rx.startDate,
-          end_date: rx.endDate,
-          status: rx.status,
-          is_local_draft: 0,
-        });
+      await reconcileServerPrescriptions(serverPrescriptions);
+      // Automatically arm/disarm OS alarms for synced doctor & self-scanned prescriptions
+      try {
+        const allLocal = await getAllLocalPrescriptions();
+        await syncPrescriptionAlarms(allLocal);
+      } catch (alarmErr) {
+        console.warn("Unable to reconcile local alarms after prescription sync:", alarmErr);
       }
     }
   } catch (err) {

@@ -99,9 +99,19 @@ export async function initDatabase(): Promise<void> {
     );
   `);
 
-  // Safe migration for existing databases lacking image_uri
+  // Safe migrations for existing databases
   try {
     await db.execAsync("ALTER TABLE local_prescriptions ADD COLUMN image_uri TEXT;");
+  } catch {
+    // Column already exists
+  }
+  try {
+    await db.execAsync("ALTER TABLE local_appointments ADD COLUMN rejection_reason TEXT;");
+  } catch {
+    // Column already exists
+  }
+  try {
+    await db.execAsync("ALTER TABLE local_appointments ADD COLUMN cancellation_reason TEXT;");
   } catch {
     // Column already exists
   }
@@ -131,6 +141,11 @@ export interface LocalPrescription {
 
 export async function getLocalPrescriptions(): Promise<LocalPrescription[]> {
   const db = await getDb();
+  try {
+    await db.runAsync("DELETE FROM local_prescriptions WHERE id = 'rx_demo_1' OR id LIKE 'rx_demo%'");
+  } catch {
+    // ignore
+  }
   const rows = await db.getAllAsync<any>(
     "SELECT * FROM local_prescriptions WHERE status = 'ACTIVE' ORDER BY start_date DESC"
   );
@@ -138,6 +153,66 @@ export async function getLocalPrescriptions(): Promise<LocalPrescription[]> {
     ...r,
     schedule_times: JSON.parse(r.schedule_times || "[]"),
   }));
+}
+
+export async function getAllLocalPrescriptions(): Promise<LocalPrescription[]> {
+  const db = await getDb();
+  try {
+    await db.runAsync("DELETE FROM local_prescriptions WHERE id = 'rx_demo_1' OR id LIKE 'rx_demo%'");
+  } catch {
+    // ignore
+  }
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM local_prescriptions ORDER BY start_date DESC"
+  );
+  return rows.map((r) => ({
+    ...r,
+    schedule_times: JSON.parse(r.schedule_times || "[]"),
+  }));
+}
+
+export async function deleteLocalPrescription(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM local_prescriptions WHERE id = ?", [id]);
+  await db.runAsync("DELETE FROM local_adherence_logs WHERE prescription_id = ?", [id]);
+}
+
+export async function clearAllLocalPrescriptions(): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM local_prescriptions");
+  await db.runAsync("DELETE FROM local_adherence_logs");
+}
+
+export async function reconcileServerPrescriptions(serverRxs: any[]): Promise<void> {
+  const serverIds = new Set(serverRxs.map((r) => r.id));
+
+  // 1. Upsert each server prescription (including ACTIVE, PAUSED, COMPLETED, DISCONTINUED) into local SQLite
+  for (const rx of serverRxs) {
+    await saveLocalPrescription({
+      id: rx.id,
+      patient_id: rx.patientId,
+      doctor_id: rx.doctorId ?? null,
+      doctor_name: rx.prescribedBy || (rx.doctor ? `${rx.doctor.firstName} ${rx.doctor.lastName}` : "CSU Clinic"),
+      name: rx.name,
+      dosage: rx.dosage,
+      form: rx.form || "Capsule",
+      instructions: rx.instructions || null,
+      frequency: rx.frequency,
+      schedule_times: rx.scheduleTimes || [],
+      start_date: rx.startDate,
+      end_date: rx.endDate ?? null,
+      status: rx.status || "ACTIVE",
+      is_local_draft: 0,
+    });
+  }
+
+  // 2. Remove any local prescriptions (that are not unsynced offline drafts) that no longer exist on server
+  const localList = await getAllLocalPrescriptions();
+  for (const local of localList) {
+    if (local.is_local_draft !== 1 && !serverIds.has(local.id)) {
+      await deleteLocalPrescription(local.id);
+    }
+  }
 }
 
 export async function saveLocalPrescription(
@@ -188,6 +263,7 @@ export async function saveLocalPrescription(
           frequency: rx.frequency,
           scheduleTimes: rx.schedule_times,
           startDate: rx.start_date,
+          endDate: rx.end_date ?? null,
         }),
         `prescription_${rx.id}`,
         Date.now(),
@@ -211,14 +287,18 @@ export interface LocalAdherenceLog {
   sync_status: "PENDING" | "SYNCED" | "FAILED";
 }
 
-export async function logDoseLocally(log: Omit<LocalAdherenceLog, "sync_status">): Promise<void> {
+export async function logDoseLocally(
+  log: Omit<LocalAdherenceLog, "sync_status">,
+  options: { enqueueOutbox?: boolean } = { enqueueOutbox: true },
+): Promise<void> {
+  const shouldEnqueue = options.enqueueOutbox !== false;
   const db = await getDb();
   await db.withTransactionAsync(async () => {
-    // 1. Insert into local log
+    // 1. Upsert into local log (prevents primary key collisions)
     await db.runAsync(
-      `INSERT INTO local_adherence_logs (
+      `INSERT OR REPLACE INTO local_adherence_logs (
         id, prescription_id, scheduled_time, taken_time, status, notes, created_at, sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         log.id,
         log.prescription_id,
@@ -227,24 +307,39 @@ export async function logDoseLocally(log: Omit<LocalAdherenceLog, "sync_status">
         log.status,
         log.notes ?? null,
         log.created_at,
+        shouldEnqueue ? "PENDING" : "SYNCED",
       ]
     );
 
-    // 2. Queue into sync_outbox for background flush
-    await db.runAsync(
-      `INSERT OR REPLACE INTO sync_outbox (
-        id, endpoint, http_method, payload, idempotency_key, created_at, retry_count
-      ) VALUES (?, ?, ?, ?, ?, ?, 0)`,
-      [
-        log.id,
-        "/adherence",
-        "POST",
-        JSON.stringify(log),
-        `adherence_${log.id}`,
-        Date.now(),
-      ]
-    );
+    // 2. Optionally queue into sync_outbox for offline background flush
+    if (shouldEnqueue) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO sync_outbox (
+          id, endpoint, http_method, payload, idempotency_key, created_at, retry_count
+        ) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+        [
+          log.id,
+          "/adherence",
+          "POST",
+          JSON.stringify({
+            prescriptionId: log.prescription_id,
+            scheduledTime: log.scheduled_time,
+            takenTime: log.taken_time ?? null,
+            status: log.status,
+            notes: log.notes ?? null,
+          }),
+          `adherence_${log.id}`,
+          Date.now(),
+        ]
+      );
+    }
   });
+}
+
+export async function upsertSyncedServerLog(
+  log: Omit<LocalAdherenceLog, "sync_status">,
+): Promise<void> {
+  await logDoseLocally(log, { enqueueOutbox: false });
 }
 
 export async function getTodayLocalLogs(): Promise<LocalAdherenceLog[]> {
@@ -330,6 +425,8 @@ export interface LocalAppointment {
   providerSpecialization?: string | null;
   telehealthUrl?: string | null;
   clinicalNotes?: string | null;
+  rejectionReason?: string | null;
+  cancellationReason?: string | null;
   checkedInAt?: string | null;
 }
 
@@ -348,6 +445,8 @@ export async function getLocalAppointments(): Promise<LocalAppointment[]> {
     providerSpecialization: r.provider_specialization,
     telehealthUrl: r.telehealth_url,
     clinicalNotes: r.clinical_notes,
+    rejectionReason: r.rejection_reason ?? null,
+    cancellationReason: r.cancellation_reason ?? null,
     checkedInAt: r.checked_in_at,
   }));
 }
@@ -359,8 +458,8 @@ export async function saveLocalAppointments(appointments: LocalAppointment[]): P
       await db.runAsync(
         `INSERT OR REPLACE INTO local_appointments (
           id, reason, type, status, scheduled_at, provider_name,
-          provider_specialization, telehealth_url, clinical_notes, checked_in_at, last_synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          provider_specialization, telehealth_url, clinical_notes, rejection_reason, cancellation_reason, checked_in_at, last_synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           appt.id,
           appt.reason,
@@ -371,6 +470,8 @@ export async function saveLocalAppointments(appointments: LocalAppointment[]): P
           appt.providerSpecialization ?? null,
           appt.telehealthUrl ?? null,
           appt.clinicalNotes ?? null,
+          appt.rejectionReason ?? null,
+          appt.cancellationReason ?? null,
           appt.checkedInAt ?? null,
           Date.now(),
         ]
@@ -403,5 +504,21 @@ export async function saveCachedJson(cacheKey: string, value: unknown): Promise<
     "INSERT OR REPLACE INTO local_kv_cache (cache_key, value, updated_at) VALUES (?, ?, ?)",
     [cacheKey, JSON.stringify(value), Date.now()]
   );
+}
+
+/**
+ * Completely wipes local offline SQLite storage (prescriptions, dose logs, cache, outbox)
+ * Used on logout or when resetting the patient profile.
+ */
+export async function clearLocalDatabase(): Promise<void> {
+  const db = await getDb();
+  await db.execAsync(`
+    DELETE FROM local_user_profile;
+    DELETE FROM local_prescriptions;
+    DELETE FROM local_adherence_logs;
+    DELETE FROM sync_outbox;
+    DELETE FROM local_appointments;
+    DELETE FROM local_kv_cache;
+  `);
 }
 

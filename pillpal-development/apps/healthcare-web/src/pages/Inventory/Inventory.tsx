@@ -4,10 +4,13 @@ import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
+  Ban,
   Boxes,
   CheckCircle2,
   Clock,
+  Download,
   History,
+  Layers,
   Package,
   PackageMinus,
   PackagePlus,
@@ -16,6 +19,8 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 import { fetchWithAuth } from "@/lib/api";
@@ -36,6 +41,7 @@ type InventoryBatch = {
   quantity: number;
   expiryDate: string;
   supplier: string | null;
+  isExpired?: boolean;
 };
 
 type InventoryItem = {
@@ -46,6 +52,8 @@ type InventoryItem = {
   form: string;
   category: string;
   currentStock: number;
+  expiredUnits?: number;
+  expiredBatchesCount?: number;
   minimumStock: number;
   status: "AVAILABLE" | "LOW_STOCK" | "OUT_OF_STOCK" | "EXPIRED";
   activeBatchesCount: number;
@@ -53,20 +61,37 @@ type InventoryItem = {
   batches: InventoryBatch[];
 };
 
+type AlertBatch = {
+  id: string;
+  inventoryItemId?: string;
+  medicationName: string;
+  batchNumber: string;
+  quantity: number;
+  expiryDate: string;
+  supplier?: string | null;
+  isExpired: boolean;
+};
+
 type InventoryAlerts = {
   lowStockCount: number;
   outOfStockCount: number;
+  expiredCount: number;
+  expiredUnitsTotal: number;
   expiringSoonCount: number;
   lowStockItems: InventoryItem[];
   outOfStockItems: InventoryItem[];
-  expiringBatches: {
-    id: string;
-    medicationName: string;
-    batchNumber: string;
-    quantity: number;
-    expiryDate: string;
-    isExpired: boolean;
-  }[];
+  expiredBatches: AlertBatch[];
+  expiringBatches: AlertBatch[];
+};
+
+type DisposeBatchTarget = {
+  batchId: string;
+  medicationName: string;
+  batchNumber: string;
+  quantity: number;
+  expiryDate: string;
+  supplier: string | null;
+  isExpired: boolean;
 };
 
 type InventoryTransaction = {
@@ -89,9 +114,12 @@ export function Inventory() {
   const [alerts, setAlerts] = useState<InventoryAlerts>({
     lowStockCount: 0,
     outOfStockCount: 0,
+    expiredCount: 0,
+    expiredUnitsTotal: 0,
     expiringSoonCount: 0,
     lowStockItems: [],
     outOfStockItems: [],
+    expiredBatches: [],
     expiringBatches: [],
   });
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
@@ -102,12 +130,23 @@ export function Inventory() {
 
   // User role for RBAC
   const [userRole, setUserRole] = useState("HEALTH_STAFF");
+  const canManageInventory =
+    userRole === "HEALTH_STAFF" || userRole === "DOCTOR" || userRole === "ADMIN";
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
   const [isDispenseModalOpen, setIsDispenseModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [selectedBatchItem, setSelectedBatchItem] = useState<InventoryItem | null>(null);
+  const [disposeTarget, setDisposeTarget] = useState<DisposeBatchTarget | null>(null);
+  const [disposeForm, setDisposeForm] = useState({
+    action: "DISPOSE" as "DISPOSE" | "RETURN_SUPPLIER",
+    quantity: "",
+    disposalMethod: "Pharmaceutical Waste Bin (DOH Protocol)",
+    witnessName: "",
+    reason: "",
+  });
 
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState("");
@@ -172,7 +211,17 @@ export function Inventory() {
 
       if (alertsRes.ok) {
         const aData = await alertsRes.json();
-        setAlerts(aData);
+        setAlerts({
+          lowStockCount: aData.lowStockCount ?? 0,
+          outOfStockCount: aData.outOfStockCount ?? 0,
+          expiredCount: aData.expiredCount ?? 0,
+          expiredUnitsTotal: aData.expiredUnitsTotal ?? 0,
+          expiringSoonCount: aData.expiringSoonCount ?? 0,
+          lowStockItems: Array.isArray(aData.lowStockItems) ? aData.lowStockItems : [],
+          outOfStockItems: Array.isArray(aData.outOfStockItems) ? aData.outOfStockItems : [],
+          expiredBatches: Array.isArray(aData.expiredBatches) ? aData.expiredBatches : [],
+          expiringBatches: Array.isArray(aData.expiringBatches) ? aData.expiringBatches : [],
+        });
       }
 
       if (histRes.ok) {
@@ -361,6 +410,69 @@ export function Inventory() {
     }
   }
 
+  function openDisposeModal(
+    target: DisposeBatchTarget,
+    defaultAction: "DISPOSE" | "RETURN_SUPPLIER" = "DISPOSE",
+  ) {
+    setModalError("");
+    setModalSuccess(false);
+    setDisposeTarget(target);
+    setDisposeForm({
+      action: defaultAction,
+      quantity: String(target.quantity),
+      disposalMethod:
+        defaultAction === "RETURN_SUPPLIER"
+          ? "Returned to DOH Regional Medical Depot / Supplier"
+          : "Pharmaceutical Waste Bin (DOH Protocol)",
+      witnessName: "",
+      reason:
+        defaultAction === "RETURN_SUPPLIER"
+          ? target.isExpired
+            ? "Expired batch pulled from shelf for supplier/DOH return"
+            : "Near-expiry batch returned to supplier for exchange"
+          : target.isExpired
+            ? "Expired lot quarantined and condemned per CSU clinic protocol"
+            : "Damaged / compromised units written off",
+    });
+  }
+
+  async function handleDisposeBatch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!disposeTarget) return;
+    setModalError("");
+    setModalLoading(true);
+
+    try {
+      const res = await fetchWithAuth(`/inventory/batches/${disposeTarget.batchId}/dispose`, {
+        method: "POST",
+        body: JSON.stringify({
+          action: disposeForm.action,
+          quantity: parseInt(disposeForm.quantity, 10),
+          disposalMethod: disposeForm.disposalMethod,
+          witnessName: disposeForm.witnessName,
+          reason: disposeForm.reason,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to process batch disposal");
+      }
+
+      setModalSuccess(true);
+      setTimeout(() => {
+        setModalSuccess(false);
+        setDisposeTarget(null);
+        setSelectedBatchItem(null);
+        void loadInventoryData();
+      }, 900);
+    } catch (err: any) {
+      setModalError(err.message || "Failed to process batch disposal.");
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
   const categories = ["ALL", ...Array.from(new Set(items.map((i) => i.category)))];
 
   const filteredItems = items.filter((item) => {
@@ -376,6 +488,86 @@ export function Inventory() {
   });
 
   const totalStockCount = items.reduce((acc, curr) => acc + curr.currentStock, 0);
+
+  function escapeCsvCell(val: string | number | null | undefined): string {
+    const str = String(val ?? "");
+    return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  }
+
+  function downloadCsv(filename: string, headers: string[], rows: (string | number | null | undefined)[][]) {
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsvCell).join(","))
+      .join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportCatalogCsv() {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    downloadCsv(
+      `pillpal-inventory-catalog-${todayIso}.csv`,
+      [
+        "Generic Name",
+        "Brand Name",
+        "Strength",
+        "Form",
+        "Category",
+        "Current Stock",
+        "Minimum Stock",
+        "Active Batches",
+        "Nearest Expiry",
+        "Status",
+      ],
+      filteredItems.map((i) => [
+        i.name,
+        i.brandName || "",
+        i.strength,
+        i.form,
+        i.category,
+        i.currentStock,
+        i.minimumStock,
+        i.batches.length,
+        i.closestExpiryDate ? new Date(i.closestExpiryDate).toLocaleDateString("en-PH") : "",
+        i.status,
+      ]),
+    );
+  }
+
+  function handleExportLedgerCsv() {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    downloadCsv(
+      `pillpal-inventory-ledger-${todayIso}.csv`,
+      [
+        "Timestamp",
+        "Medication",
+        "Event Type",
+        "Quantity Delta",
+        "Previous Stock",
+        "New Stock",
+        "Batch Number",
+        "Performed By",
+        "Reason",
+      ],
+      transactions.map((tx) => [
+        new Date(tx.createdAt).toLocaleString("en-PH"),
+        tx.medicationName,
+        tx.type,
+        tx.quantity,
+        tx.previousStock,
+        tx.newStock,
+        tx.batchNumber || "",
+        tx.performedBy,
+        tx.reason || "",
+      ]),
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -397,7 +589,7 @@ export function Inventory() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {(userRole === "HEALTH_STAFF" || userRole === "ADMIN") && (
+          {canManageInventory && (
             <>
               <Button
                 variant="outline"
@@ -468,24 +660,53 @@ export function Inventory() {
           </CardContent>
         </Card>
 
-        {/* Expiring Soon */}
+        {/* Expiring Soon / Expired Quarantined */}
         <Card
-          className={`rounded-2xl border shadow-xs transition-shadow ${
-            alerts.expiringSoonCount > 0 ? "border-orange-200 bg-orange-50/20" : "border-slate-100"
+          onClick={() => setActiveTab("alerts")}
+          className={`rounded-2xl border shadow-xs transition-shadow cursor-pointer hover:shadow-md ${
+            alerts.expiredCount > 0
+              ? "border-red-300 bg-red-50/30"
+              : alerts.expiringSoonCount > 0
+                ? "border-orange-200 bg-orange-50/20"
+                : "border-slate-100"
           }`}
         >
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-semibold text-orange-800 uppercase tracking-wider">
-              Expiring in 60 Days
+            <CardTitle
+              className={`text-xs font-semibold uppercase tracking-wider ${
+                alerts.expiredCount > 0 ? "text-red-800" : "text-orange-800"
+              }`}
+            >
+              {alerts.expiredCount > 0 ? "Expired & Expiring" : "Expiring in 60 Days"}
             </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-100 text-orange-700">
+            <div
+              className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+                alerts.expiredCount > 0
+                  ? "bg-red-100 text-red-700"
+                  : "bg-orange-100 text-orange-700"
+              }`}
+            >
               <Clock className="h-4 w-4" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-800">{alerts.expiringSoonCount} Batches</div>
-            <p className="mt-1 text-[11px] text-orange-700 font-medium">
-              Requires FEFO dispensing
+            <div
+              className={`text-2xl font-bold ${
+                alerts.expiredCount > 0 ? "text-red-800" : "text-orange-800"
+              }`}
+            >
+              {alerts.expiredCount > 0
+                ? `${alerts.expiredCount} Expired`
+                : `${alerts.expiringSoonCount} Batches`}
+            </div>
+            <p
+              className={`mt-1 text-[11px] font-medium ${
+                alerts.expiredCount > 0 ? "text-red-700" : "text-orange-700"
+              }`}
+            >
+              {alerts.expiredCount > 0
+                ? `${alerts.expiredUnitsTotal}u quarantined • ${alerts.expiringSoonCount} expiring <60d`
+                : "Requires FEFO dispensing"}
             </p>
           </CardContent>
         </Card>
@@ -538,7 +759,12 @@ export function Inventory() {
           }`}
         >
           <AlertTriangle className="h-4 w-4" />
-          Alerts & Expiry ({alerts.lowStockCount + alerts.expiringSoonCount + alerts.outOfStockCount})
+          Alerts & Expiry (
+          {alerts.lowStockCount +
+            alerts.expiredCount +
+            alerts.expiringSoonCount +
+            alerts.outOfStockCount}
+          )
         </button>
 
         <button
@@ -599,14 +825,26 @@ export function Inventory() {
                       <option value="AVAILABLE">Available</option>
                       <option value="LOW_STOCK">Low Stock</option>
                       <option value="OUT_OF_STOCK">Out of Stock</option>
+                      <option value="EXPIRED">Expired (Quarantined)</option>
                     </select>
                   </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={filteredItems.length === 0}
+                    onClick={handleExportCatalogCsv}
+                    className="h-8 rounded-xl text-xs font-bold gap-1 cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export CSV
+                  </Button>
 
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => void loadInventoryData()}
-                    className="h-8 rounded-xl text-xs text-slate-500 hover:text-slate-900"
+                    className="h-8 rounded-xl text-xs text-slate-500 hover:text-slate-900 cursor-pointer"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                   </Button>
@@ -617,9 +855,14 @@ export function Inventory() {
 
           {/* Catalog Table */}
           <Card className="rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Clinic inventory catalog table"
+              className="card-scroll-area max-h-[520px] overflow-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0284c7]/50"
+            >
               <table className="w-full text-left text-xs text-slate-700">
-                <thead className="border-b border-slate-100 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <thead className="sticky top-0 z-10 border-b border-slate-200/80 bg-slate-50/95 backdrop-blur-xs text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <tr>
                     <th className="px-6 py-3.5">Medication Generic & Brand</th>
                     <th className="px-6 py-3.5">Strength / Form</th>
@@ -627,7 +870,7 @@ export function Inventory() {
                     <th className="px-6 py-3.5">Current Stock</th>
                     <th className="px-6 py-3.5">Batches / Nearest Expiry</th>
                     <th className="px-6 py-3.5">Status</th>
-                    {userRole !== "DOCTOR" && <th className="px-6 py-3.5 text-right">Actions</th>}
+                    {canManageInventory && <th className="px-6 py-3.5 text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -666,21 +909,48 @@ export function Inventory() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-black text-slate-900">{item.currentStock}</span>
-                          <span className="text-[10px] text-slate-400 ml-1">
-                            (Min: {item.minimumStock})
-                          </span>
+                          <div>
+                            <span className="text-sm font-black text-slate-900">
+                              {item.currentStock}
+                            </span>
+                            <span className="text-[10px] text-slate-400 ml-1">
+                              (Min: {item.minimumStock})
+                            </span>
+                          </div>
+                          {(item.expiredUnits ?? 0) > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedBatchItem(item)}
+                              className="mt-1 inline-flex items-center gap-1 rounded bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-700 hover:bg-red-100 cursor-pointer"
+                            >
+                              <Ban className="h-2.5 w-2.5" />
+                              {item.expiredUnits} expired — dispose
+                            </button>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-slate-600 text-[11px]">
                           {item.batches.length > 0 ? (
-                            <div>
-                              <span className="font-semibold text-slate-800">
-                                {item.batches.length} active lot{item.batches.length > 1 ? "s" : ""}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedBatchItem(item)}
+                              className="text-left group cursor-pointer"
+                            >
+                              <span className="font-semibold text-[#0284c7] group-hover:underline inline-flex items-center gap-1">
+                                <Layers className="h-3 w-3" />
+                                {item.activeBatchesCount} usable lot
+                                {item.activeBatchesCount === 1 ? "" : "s"}
                               </span>
-                              <p className="text-[10px] text-slate-400">
-                                Exp: {new Date(item.closestExpiryDate!).toLocaleDateString()}
-                              </p>
-                            </div>
+                              {item.closestExpiryDate && (
+                                <p className="text-[10px] text-slate-400">
+                                  Exp: {new Date(item.closestExpiryDate).toLocaleDateString()}
+                                </p>
+                              )}
+                              {(item.expiredBatchesCount ?? 0) > 0 && (
+                                <p className="text-[10px] font-bold text-red-600">
+                                  {item.expiredBatchesCount} expired quarantined
+                                </p>
+                              )}
+                            </button>
                           ) : (
                             <span className="text-slate-400 italic">No batches</span>
                           )}
@@ -691,17 +961,20 @@ export function Inventory() {
                               item.status === "AVAILABLE"
                                 ? "bg-emerald-50 text-emerald-700"
                                 : item.status === "LOW_STOCK"
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-red-50 text-red-700"
+                                  ? "bg-amber-50 text-amber-700"
+                                  : item.status === "EXPIRED"
+                                    ? "bg-red-100 text-red-800 border border-red-200"
+                                    : "bg-red-50 text-red-700"
                             }`}
                           >
                             {item.status === "AVAILABLE" && <CheckCircle2 className="h-3 w-3" />}
                             {item.status === "LOW_STOCK" && <AlertTriangle className="h-3 w-3" />}
                             {item.status === "OUT_OF_STOCK" && <ShieldAlert className="h-3 w-3" />}
-                            {item.status}
+                            {item.status === "EXPIRED" && <Ban className="h-3 w-3" />}
+                            {item.status === "EXPIRED" ? "EXPIRED (QUARANTINED)" : item.status}
                           </span>
                         </td>
-                        {userRole !== "DOCTOR" && (
+                        {canManageInventory && (
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <Button
@@ -757,97 +1030,231 @@ export function Inventory() {
 
       {/* 5. TAB CONTENT: ALERTS & EXPIRY */}
       {activeTab === "alerts" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Low Stock Items List */}
-          <Card className="rounded-2xl border border-amber-200 bg-amber-50/10 shadow-xs">
-            <CardHeader className="pb-3 border-b border-amber-100">
-              <CardTitle className="text-sm font-bold text-amber-900 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-                Low Stock Critical Alerts ({alerts.lowStockItems.length})
-              </CardTitle>
-              <CardDescription className="text-xs text-amber-700">
-                Medications that have fallen below minimum clinic stock levels.
-              </CardDescription>
+        <div className="space-y-6">
+          {/* Expired & Quarantined Batches (Blocked from Dispensing — Action Required) */}
+          <Card
+            className={`rounded-2xl border shadow-xs ${
+              alerts.expiredBatches.length > 0
+                ? "border-red-300 bg-red-50/25"
+                : "border-slate-100 bg-white"
+            }`}
+          >
+            <CardHeader className="pb-3 border-b border-red-100">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-sm font-bold text-red-900 flex items-center gap-2">
+                    <Ban className="h-4 w-4 text-red-600" />
+                    Expired &amp; Quarantined Batches ({alerts.expiredBatches.length})
+                  </CardTitle>
+                  <CardDescription className="text-xs text-red-700">
+                    Automatically blocked from patient dispensing and excluded from usable clinic
+                    stock. Pull from shelf and log disposal or supplier return.
+                  </CardDescription>
+                </div>
+                {alerts.expiredUnitsTotal > 0 && (
+                  <span className="rounded-full bg-red-100 border border-red-200 px-2.5 py-1 text-[11px] font-extrabold text-red-800">
+                    {alerts.expiredUnitsTotal} units pending disposal
+                  </span>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-4 space-y-2.5">
-              {alerts.lowStockItems.length === 0 ? (
-                <p className="text-xs text-slate-400 py-4 text-center italic">
-                  No medications currently at low stock.
+              {alerts.expiredBatches.length === 0 ? (
+                <p className="text-xs text-emerald-700 font-semibold py-3 text-center">
+                  No expired batches on shelf. All active lots are within valid expiry dates.
                 </p>
               ) : (
-                alerts.lowStockItems.map((item) => (
+                alerts.expiredBatches.map((batch) => (
                   <div
-                    key={item.id}
-                    className="flex items-center justify-between rounded-xl bg-white border border-amber-100 p-3 text-xs shadow-2xs"
+                    key={batch.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl bg-white border border-red-200 p-3.5 text-xs shadow-2xs"
                   >
-                    <div>
-                      <p className="font-bold text-slate-900">{item.name}</p>
-                      <p className="text-[11px] text-slate-400">
-                        {item.strength} • Min Threshold: {item.minimumStock}
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-slate-900">{batch.medicationName}</p>
+                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-extrabold text-red-800">
+                          EXPIRED • QUARANTINED
+                        </span>
+                      </div>
+                      <p className="font-mono text-[11px] text-slate-500">
+                        Lot: {batch.batchNumber} • Qty: <strong>{batch.quantity} units</strong> •
+                        Expired: {new Date(batch.expiryDate).toLocaleDateString()}
                       </p>
+                      {batch.supplier && (
+                        <p className="text-[10px] text-slate-400">Supplier: {batch.supplier}</p>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <span className="text-sm font-black text-amber-700">
-                        {item.currentStock} left
-                      </span>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setReceiveForm((prev) => ({ ...prev, itemId: item.id }));
-                          setIsReceiveModalOpen(true);
-                        }}
-                        className="mt-1 h-6 text-[10px] bg-amber-600 hover:bg-amber-700 font-bold block"
-                      >
-                        Restock
-                      </Button>
-                    </div>
+
+                    {canManageInventory && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            openDisposeModal(
+                              {
+                                batchId: batch.id,
+                                medicationName: batch.medicationName,
+                                batchNumber: batch.batchNumber,
+                                quantity: batch.quantity,
+                                expiryDate: batch.expiryDate,
+                                supplier: batch.supplier || null,
+                                isExpired: true,
+                              },
+                              "RETURN_SUPPLIER",
+                            )
+                          }
+                          className="h-7 rounded-lg text-[11px] font-bold border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 gap-1 cursor-pointer"
+                        >
+                          <Undo2 className="h-3 w-3" />
+                          Return
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() =>
+                            openDisposeModal(
+                              {
+                                batchId: batch.id,
+                                medicationName: batch.medicationName,
+                                batchNumber: batch.batchNumber,
+                                quantity: batch.quantity,
+                                expiryDate: batch.expiryDate,
+                                supplier: batch.supplier || null,
+                                isExpired: true,
+                              },
+                              "DISPOSE",
+                            )
+                          }
+                          className="h-7 rounded-lg text-[11px] font-bold bg-red-600 hover:bg-red-700 text-white gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Dispose
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
             </CardContent>
           </Card>
 
-          {/* Expiring Soon Batches List */}
-          <Card className="rounded-2xl border border-orange-200 bg-orange-50/10 shadow-xs">
-            <CardHeader className="pb-3 border-b border-orange-100">
-              <CardTitle className="text-sm font-bold text-orange-900 flex items-center gap-2">
-                <Clock className="h-4 w-4 text-orange-600" />
-                Batches Expiring in &lt; 60 Days ({alerts.expiringBatches.length})
-              </CardTitle>
-              <CardDescription className="text-xs text-orange-700">
-                Lot numbers requiring First-Expired, First-Out (FEFO) dispensing priority.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 space-y-2.5">
-              {alerts.expiringBatches.length === 0 ? (
-                <p className="text-xs text-slate-400 py-4 text-center italic">
-                  No active lots expiring in the next 60 days.
-                </p>
-              ) : (
-                alerts.expiringBatches.map((batch) => (
-                  <div
-                    key={batch.id}
-                    className="flex items-center justify-between rounded-xl bg-white border border-orange-100 p-3 text-xs shadow-2xs"
-                  >
-                    <div>
-                      <p className="font-bold text-slate-900">{batch.medicationName}</p>
-                      <p className="font-mono text-[10px] text-slate-500">
-                        Lot: {batch.batchNumber} • Qty: {batch.quantity}
-                      </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Low Stock Items List */}
+            <Card className="rounded-2xl border border-amber-200 bg-amber-50/10 shadow-xs">
+              <CardHeader className="pb-3 border-b border-amber-100">
+                <CardTitle className="text-sm font-bold text-amber-900 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  Low Stock Critical Alerts ({alerts.lowStockItems.length})
+                </CardTitle>
+                <CardDescription className="text-xs text-amber-700">
+                  Medications that have fallen below minimum clinic stock levels.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2.5">
+                {alerts.lowStockItems.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4 text-center italic">
+                    No medications currently at low stock.
+                  </p>
+                ) : (
+                  alerts.lowStockItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between rounded-xl bg-white border border-amber-100 p-3 text-xs shadow-2xs"
+                    >
+                      <div>
+                        <p className="font-bold text-slate-900">{item.name}</p>
+                        <p className="text-[11px] text-slate-400">
+                          {item.strength} • Min Threshold: {item.minimumStock}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-black text-amber-700">
+                          {item.currentStock} left
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setReceiveForm((prev) => ({ ...prev, itemId: item.id }));
+                            setIsReceiveModalOpen(true);
+                          }}
+                          className="mt-1 h-6 text-[10px] bg-amber-600 hover:bg-amber-700 font-bold block cursor-pointer"
+                        >
+                          Restock
+                        </Button>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="font-bold text-orange-700">
-                        {new Date(batch.expiryDate).toLocaleDateString()}
-                      </span>
-                      <span className="block text-[10px] text-orange-600 font-semibold">
-                        {batch.isExpired ? "EXPIRED" : "Prioritize Dispensing"}
-                      </span>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Expiring Soon Batches List */}
+            <Card className="rounded-2xl border border-orange-200 bg-orange-50/10 shadow-xs">
+              <CardHeader className="pb-3 border-b border-orange-100">
+                <CardTitle className="text-sm font-bold text-orange-900 flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-orange-600" />
+                  Batches Expiring in &lt; 60 Days ({alerts.expiringBatches.length})
+                </CardTitle>
+                <CardDescription className="text-xs text-orange-700">
+                  Lot numbers requiring First-Expired, First-Out (FEFO) dispensing priority.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2.5">
+                {alerts.expiringBatches.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4 text-center italic">
+                    No active lots expiring in the next 60 days.
+                  </p>
+                ) : (
+                  alerts.expiringBatches.map((batch) => (
+                    <div
+                      key={batch.id}
+                      className="flex items-center justify-between gap-2 rounded-xl bg-white border border-orange-100 p-3 text-xs shadow-2xs"
+                    >
+                      <div>
+                        <p className="font-bold text-slate-900">{batch.medicationName}</p>
+                        <p className="font-mono text-[10px] text-slate-500">
+                          Lot: {batch.batchNumber} • Qty: {batch.quantity}
+                        </p>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <span className="font-bold text-orange-700 block">
+                          {new Date(batch.expiryDate).toLocaleDateString()}
+                        </span>
+                        <span className="block text-[10px] text-orange-600 font-semibold">
+                          Prioritize FEFO Dispensing
+                        </span>
+                        {canManageInventory && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openDisposeModal(
+                                {
+                                  batchId: batch.id,
+                                  medicationName: batch.medicationName,
+                                  batchNumber: batch.batchNumber,
+                                  quantity: batch.quantity,
+                                  expiryDate: batch.expiryDate,
+                                  supplier: batch.supplier || null,
+                                  isExpired: false,
+                                },
+                                "RETURN_SUPPLIER",
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 hover:underline cursor-pointer"
+                          >
+                            <Undo2 className="h-2.5 w-2.5" />
+                            Return to Supplier
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 
@@ -863,20 +1270,37 @@ export function Inventory() {
                 Complete chronological audit log of all receiving, dispensing, and audit recounts.
               </CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void loadInventoryData()}
-              className="h-8 rounded-xl text-xs gap-1.5"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh Ledger
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={transactions.length === 0}
+                onClick={handleExportLedgerCsv}
+                className="h-8 rounded-xl text-xs font-bold gap-1.5 cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadInventoryData()}
+                className="h-8 rounded-xl text-xs gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                Refresh Ledger
+              </Button>
+            </div>
           </CardHeader>
 
-          <div className="overflow-x-auto">
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Inventory transaction ledger table"
+            className="card-scroll-area max-h-[520px] overflow-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0284c7]/50"
+          >
             <table className="w-full text-left text-xs text-slate-700">
-              <thead className="border-b border-slate-100 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              <thead className="sticky top-0 z-10 border-b border-slate-200/80 bg-slate-50/95 backdrop-blur-xs text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3.5">Timestamp</th>
                   <th className="px-6 py-3.5">Medication</th>
@@ -913,12 +1337,18 @@ export function Inventory() {
                             tx.type === "RECEIVED"
                               ? "bg-emerald-50 text-emerald-700"
                               : tx.type.startsWith("DISPENSED")
-                              ? "bg-sky-50 text-sky-700"
-                              : "bg-purple-50 text-purple-700"
+                                ? "bg-sky-50 text-sky-700"
+                                : tx.type === "DAMAGED_EXPIRED"
+                                  ? "bg-red-50 text-red-700 border border-red-200/80"
+                                  : tx.type === "RETURNED"
+                                    ? "bg-amber-50 text-amber-800 border border-amber-200/80"
+                                    : "bg-purple-50 text-purple-700"
                           }`}
                         >
                           {tx.type === "RECEIVED" && <ArrowUpRight className="h-3 w-3" />}
                           {tx.type.startsWith("DISPENSED") && <ArrowDownRight className="h-3 w-3" />}
+                          {tx.type === "DAMAGED_EXPIRED" && <Trash2 className="h-3 w-3" />}
+                          {tx.type === "RETURNED" && <Undo2 className="h-3 w-3" />}
                           {tx.type}
                         </span>
                       </td>
@@ -932,7 +1362,7 @@ export function Inventory() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-mono text-[11px]">
-                        {tx.previousStock} $\rightarrow$ <strong className="text-slate-900">{tx.newStock}</strong>
+                        {tx.previousStock} → <strong className="text-slate-900">{tx.newStock}</strong>
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-semibold text-slate-800 text-[11px]">{tx.performedBy}</p>
@@ -1306,7 +1736,7 @@ export function Inventory() {
                 <div className="space-y-1">
                   <Label className="text-xs">Patient Name / CSU ID Number</Label>
                   <Input
-                    placeholder="e.g. Maria Santos (2022-04912)"
+                    placeholder="e.g. Ana Reyes (221-00675)"
                     value={dispenseForm.patientName}
                     onChange={(e) => setDispenseForm({ ...dispenseForm, patientName: e.target.value })}
                     className="rounded-xl text-xs"
@@ -1431,6 +1861,321 @@ export function Inventory() {
                   className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold"
                 >
                   {modalLoading ? "Saving..." : "Save Audit Adjustment"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* 11. MODAL: BATCH LOT BREAKDOWN */}
+      {selectedBatchItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 max-h-[85vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-base font-black text-slate-900">
+                  Batch Lots: {selectedBatchItem.name}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {selectedBatchItem.strength} • {selectedBatchItem.form} • Total on hand:{" "}
+                  <strong className="text-slate-800">{selectedBatchItem.currentStock} units</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedBatchItem(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {selectedBatchItem.batches.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-6 text-center">
+                No active batches recorded for this medication.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {selectedBatchItem.batches.map((batch) => {
+                  const expDate = new Date(batch.expiryDate);
+                  const daysUntil = Math.ceil(
+                    (expDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+                  );
+                  const isExpired = daysUntil <= 0;
+                  const isExpiringSoon = !isExpired && daysUntil <= 60;
+
+                  return (
+                    <div
+                      key={batch.id}
+                      className={`rounded-xl border p-3.5 text-xs flex items-center justify-between gap-3 ${
+                        isExpired
+                          ? "border-red-200 bg-red-50/40"
+                          : isExpiringSoon
+                            ? "border-orange-200 bg-orange-50/40"
+                            : "border-slate-100 bg-slate-50/60"
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <p className="font-mono font-bold text-slate-900">
+                          Lot: {batch.batchNumber}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Supplier: {batch.supplier || "CSU Clinic Stock"}
+                        </p>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <p className="font-black text-slate-900">{batch.quantity} units</p>
+                        <p
+                          className={`text-[11px] font-bold ${
+                            isExpired
+                              ? "text-red-700"
+                              : isExpiringSoon
+                                ? "text-orange-700"
+                                : "text-slate-500"
+                          }`}
+                        >
+                          {isExpired
+                            ? `EXPIRED (${expDate.toLocaleDateString()})`
+                            : isExpiringSoon
+                              ? `Exp in ${daysUntil}d (${expDate.toLocaleDateString()})`
+                              : `Exp: ${expDate.toLocaleDateString()}`}
+                        </p>
+                        {canManageInventory && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={isExpired ? "default" : "outline"}
+                            onClick={() =>
+                              openDisposeModal(
+                                {
+                                  batchId: batch.id,
+                                  medicationName: `${selectedBatchItem.name} ${selectedBatchItem.strength}`,
+                                  batchNumber: batch.batchNumber,
+                                  quantity: batch.quantity,
+                                  expiryDate: batch.expiryDate,
+                                  supplier: batch.supplier,
+                                  isExpired,
+                                },
+                                "DISPOSE",
+                              )
+                            }
+                            className={`h-6 rounded-lg px-2 text-[10px] font-bold gap-1 cursor-pointer ${
+                              isExpired
+                                ? "bg-red-600 hover:bg-red-700 text-white"
+                                : "text-slate-600 hover:text-red-700 hover:border-red-200"
+                            }`}
+                          >
+                            <Trash2 className="h-2.5 w-2.5" />
+                            {isExpired ? "Dispose / Return" : "Write Off / Return"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedBatchItem(null)}
+                className="rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 12. MODAL: DISPOSE EXPIRED / DAMAGED OR RETURN TO SUPPLIER */}
+      {disposeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-base font-black text-slate-900">
+                  {disposeForm.action === "RETURN_SUPPLIER"
+                    ? "Return Medicine Batch to Supplier"
+                    : "Dispose Expired / Damaged Batch"}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Records an immutable pharmacy condemnation or return entry in the audit ledger.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDisposeTarget(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div
+              className={`rounded-xl border p-3 text-xs space-y-1 ${
+                disposeTarget.isExpired
+                  ? "border-red-200 bg-red-50/50"
+                  : "border-amber-200 bg-amber-50/50"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-black text-slate-900">{disposeTarget.medicationName}</span>
+                {disposeTarget.isExpired && (
+                  <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-extrabold text-red-800">
+                    EXPIRED
+                  </span>
+                )}
+              </div>
+              <p className="font-mono text-[11px] text-slate-600">
+                Lot: {disposeTarget.batchNumber} • Available in Lot: {disposeTarget.quantity} units
+                • Expiry: {new Date(disposeTarget.expiryDate).toLocaleDateString()}
+              </p>
+              {disposeTarget.supplier && (
+                <p className="text-[11px] text-slate-500">Supplier: {disposeTarget.supplier}</p>
+              )}
+            </div>
+
+            {modalError && (
+              <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700 font-semibold flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {modalError}
+              </div>
+            )}
+            {modalSuccess && (
+              <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700 font-semibold flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Batch movement logged in the immutable audit ledger!
+              </div>
+            )}
+
+            <form onSubmit={handleDisposeBatch} className="space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Disposition Action</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDisposeForm((prev) => ({
+                        ...prev,
+                        action: "DISPOSE",
+                        disposalMethod: "Pharmaceutical Waste Bin (DOH Protocol)",
+                      }))
+                    }
+                    className={`rounded-xl border p-2.5 text-left transition-colors cursor-pointer ${
+                      disposeForm.action === "DISPOSE"
+                        ? "border-red-400 bg-red-50 text-red-900"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Dispose / Condemn
+                    </div>
+                    <p className="text-[10px] opacity-80 mt-0.5">
+                      Log as DAMAGED_EXPIRED waste
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDisposeForm((prev) => ({
+                        ...prev,
+                        action: "RETURN_SUPPLIER",
+                        disposalMethod: "Returned to DOH Regional Medical Depot / Supplier",
+                      }))
+                    }
+                    className={`rounded-xl border p-2.5 text-left transition-colors cursor-pointer ${
+                      disposeForm.action === "RETURN_SUPPLIER"
+                        ? "border-amber-400 bg-amber-50 text-amber-900"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <Undo2 className="h-3.5 w-3.5" />
+                      Return to Supplier
+                    </div>
+                    <p className="text-[10px] opacity-80 mt-0.5">
+                      Log as RETURNED for credit/recall
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Units to Remove *</Label>
+                  <Input
+                    type="number"
+                    required
+                    min="1"
+                    max={disposeTarget.quantity}
+                    value={disposeForm.quantity}
+                    onChange={(e) => setDisposeForm({ ...disposeForm, quantity: e.target.value })}
+                    className="rounded-xl text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Witness / Co-Signer (Optional)</Label>
+                  <Input
+                    placeholder="e.g. Nurse Maria Santos"
+                    value={disposeForm.witnessName}
+                    onChange={(e) =>
+                      setDisposeForm({ ...disposeForm, witnessName: e.target.value })
+                    }
+                    className="rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Disposal Method / Return Reference</Label>
+                <Input
+                  placeholder="e.g. Pharmaceutical Waste Bin / DOH Reverse Logistics Ref #..."
+                  value={disposeForm.disposalMethod}
+                  onChange={(e) =>
+                    setDisposeForm({ ...disposeForm, disposalMethod: e.target.value })
+                  }
+                  className="rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Mandatory Audit Reason *</Label>
+                <Input
+                  required
+                  placeholder="e.g. Expired lot pulled during monthly pharmacy audit"
+                  value={disposeForm.reason}
+                  onChange={(e) => setDisposeForm({ ...disposeForm, reason: e.target.value })}
+                  className="rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDisposeTarget(null)}
+                  className="rounded-xl text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={modalLoading}
+                  className={`rounded-xl text-xs font-bold text-white cursor-pointer ${
+                    disposeForm.action === "RETURN_SUPPLIER"
+                      ? "bg-amber-600 hover:bg-amber-700"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {modalLoading
+                    ? "Logging..."
+                    : disposeForm.action === "RETURN_SUPPLIER"
+                      ? "Confirm Supplier Return"
+                      : "Confirm Disposal"}
                 </Button>
               </div>
             </form>

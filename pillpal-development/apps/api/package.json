@@ -12,16 +12,23 @@
     "provider:list": "tsx src/scripts/delete-provider.ts --list",
     "provider:delete": "tsx src/scripts/delete-provider.ts",
     "seed:clinical": "tsx src/scripts/seed-clinical.ts",
+    "seed:500": "tsx src/scripts/seed-bulk-patients.ts",
+    "seed:500:reset": "tsx src/scripts/seed-bulk-patients.ts --reset",
     "clean:patients": "tsx src/scripts/clean-patients.ts",
     "seed:inventory": "tsx src/scripts/seed-inventory.ts"
   },
   "dependencies": {
     "@pillpal/database": "^1.0.0",
     "@supabase/supabase-js": "^2.115.0",
-    "dotenv": "^16.0.3"
+    "better-auth": "^1.7.28",
+    "dotenv": "^16.0.3",
+    "nodemailer": "^10.6.1",
+    "resend": "^6.40.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "@types/nodemailer": "^8.0.2",
     "tsx": "^4.20.5",
     "typescript": "~6.0.2"
   }

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Search,
   Send,
@@ -7,12 +8,27 @@ import {
   X,
   MessageSquare,
   CheckCheck,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fetchWithAuth } from "@/lib/api";
+import { hasDocumentedDrugAllergy } from "@/lib/clinical";
+
+const QUICK_CLINICAL_REPLIES = [
+  {
+    label: "Dose Check-In",
+    text: "Hi! Checking in from CSU Health Services — please make sure you are taking your scheduled medication doses on time and let us know if you experience any side effects.",
+  },
+  {
+    label: "Visit Infirmary",
+    text: "Please drop by the CSU Health Services Infirmary at your earliest convenience for a quick clinical follow-up.",
+  },
+  {
+    label: "Refill Ready",
+    text: "Your prescribed medication refill is ready for pickup at the CSU Health Services Pharmacy. Please bring your CSU ID.",
+  },
+];
 
 type ConversationItem = {
   id: string;
@@ -60,6 +76,7 @@ type EligiblePatient = {
 };
 
 export function Messages() {
+  const location = useLocation();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -132,10 +149,48 @@ export function Messages() {
     void loadConversations(false);
   }, []);
 
+  // Deep-link handoff from Dashboard, Patient Directory, or Adherence ("Message" buttons)
+  useEffect(() => {
+    const targetUserId = (location.state as { recipientUserId?: string } | null)
+      ?.recipientUserId;
+    if (!targetUserId) return;
+
+    async function openTargetConversation(userId: string) {
+      const existing = conversations.find((c) => c.otherParticipant.id === userId);
+      if (existing) {
+        setActiveConversationId(existing.id);
+        window.history.replaceState({}, document.title);
+        return;
+      }
+      try {
+        const res = await fetchWithAuth("/messages/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recipientUserId: userId }),
+        });
+        if (res.ok) {
+          const { conversationId } = await res.json();
+          await loadConversations(true);
+          setActiveConversationId(conversationId);
+        }
+      } catch (err) {
+        console.error("Failed to open deep-linked chat:", err);
+      } finally {
+        window.history.replaceState({}, document.title);
+      }
+    }
+
+    if (!loading) {
+      void openTargetConversation(targetUserId);
+    }
+  }, [location.state, loading, conversations]);
+
   // Poll conversation messages every 4 seconds for live sync
   useEffect(() => {
     if (activeConversationId) {
-      void loadMessages(activeConversationId, true);
+      void loadMessages(activeConversationId, true).then(() => {
+        window.dispatchEvent(new Event("pillpal:messages-updated"));
+      });
       const interval = setInterval(() => {
         void loadMessages(activeConversationId, false);
       }, 4000);
@@ -158,6 +213,7 @@ export function Messages() {
     try {
       const res = await fetchWithAuth(`/messages/conversations/${activeConversationId}/messages`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
 
@@ -165,6 +221,7 @@ export function Messages() {
         const newMsg: MessageItem = await res.json();
         setMessages((prev) => [...prev, newMsg]);
         void loadConversations(true);
+        window.dispatchEvent(new Event("pillpal:messages-updated"));
       }
     } catch (err) {
       console.error("Send message error:", err);
@@ -177,6 +234,7 @@ export function Messages() {
     try {
       const res = await fetchWithAuth("/messages/conversations", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recipientUserId: patientId }),
       });
 
@@ -354,12 +412,22 @@ export function Messages() {
                 <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100 text-[11px]">
                   <div>
                     <span className="text-slate-400 font-semibold text-[10px]">Blood: </span>
-                    <span className="font-bold text-slate-800">{activeConvo.otherParticipant.bloodType || "O+"}</span>
+                    <span className="font-bold text-slate-800">
+                      {activeConvo.otherParticipant.bloodType || "Not set"}
+                    </span>
                   </div>
                   <span className="text-slate-300">•</span>
                   <div>
                     <span className="text-slate-400 font-semibold text-[10px]">Allergies: </span>
-                    <span className="font-bold text-rose-700">{activeConvo.otherParticipant.allergies || "None"}</span>
+                    <span
+                      className={`font-bold ${
+                        hasDocumentedDrugAllergy(activeConvo.otherParticipant.allergies)
+                          ? "text-rose-700"
+                          : "text-slate-700"
+                      }`}
+                    >
+                      {activeConvo.otherParticipant.allergies || "Not screened"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -370,7 +438,6 @@ export function Messages() {
                   <div className="py-12 text-center text-xs text-slate-400">Loading conversation history...</div>
                 ) : messages.length === 0 ? (
                   <div className="py-16 text-center text-xs text-slate-400 space-y-2">
-                    <Sparkles className="h-8 w-8 text-sky-400 mx-auto" />
                     <p className="font-bold text-slate-700">No messages in this conversation yet</p>
                     <p className="text-[11px]">Send a clinical inquiry or greeting to start the consultation.</p>
                   </div>
@@ -413,10 +480,27 @@ export function Messages() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* Quick Clinical Reply Templates */}
+              <div className="px-3 pt-2.5 pb-1 border-t border-slate-100 bg-white flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase text-slate-400 mr-1">
+                  Quick Reply:
+                </span>
+                {QUICK_CLINICAL_REPLIES.map((tpl) => (
+                  <button
+                    key={tpl.label}
+                    type="button"
+                    onClick={() => setInputMessage(tpl.text)}
+                    className="rounded-lg bg-slate-100 hover:bg-sky-50 hover:text-[#0284c7] px-2.5 py-1 text-[10px] font-bold text-slate-600 transition-colors cursor-pointer"
+                  >
+                    {tpl.label}
+                  </button>
+                ))}
+              </div>
+
               {/* Chat Composer */}
               <form
                 onSubmit={handleSendMessage}
-                className="p-3 border-t border-slate-100 bg-white flex items-center gap-2"
+                className="p-3 pt-1.5 bg-white flex items-center gap-2"
               >
                 <Input
                   placeholder="Type a clinical reply or prescription instructions to the patient..."

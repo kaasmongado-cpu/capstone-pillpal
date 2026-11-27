@@ -17,12 +17,16 @@ async function cleanPatients() {
     adherenceLogsCount,
     prescriptionsCount,
     appointmentsCount,
+    messagesCount,
+    conversationsCount,
     patientProfilesCount,
     patientUsersCount,
   ] = await Promise.all([
     prisma.adherenceLog.count(),
     prisma.prescription.count(),
     prisma.appointment.count(),
+    prisma.message.count(),
+    prisma.conversation.count(),
     prisma.patientProfile.count(),
     prisma.user.count({ where: { role: "PATIENT" } }),
   ]);
@@ -31,6 +35,8 @@ async function cleanPatients() {
 - ${adherenceLogsCount} Adherence Logs
 - ${prescriptionsCount} Prescriptions
 - ${appointmentsCount} Appointments
+- ${messagesCount} Messages
+- ${conversationsCount} Conversations
 - ${patientProfilesCount} Patient Profiles
 - ${patientUsersCount} Patient Users`);
 
@@ -43,6 +49,18 @@ async function cleanPatients() {
 
   const deletedAppointments = await prisma.appointment.deleteMany({});
   console.log(`✓ Deleted ${deletedAppointments.count} appointments.`);
+
+  const deletedAttachments = await prisma.messageAttachment.deleteMany({});
+  console.log(`✓ Deleted ${deletedAttachments.count} message attachments.`);
+
+  const deletedMessages = await prisma.message.deleteMany({});
+  console.log(`✓ Deleted ${deletedMessages.count} messages.`);
+
+  const deletedParticipants = await prisma.conversationParticipant.deleteMany({});
+  console.log(`✓ Deleted ${deletedParticipants.count} conversation participants.`);
+
+  const deletedConversations = await prisma.conversation.deleteMany({});
+  console.log(`✓ Deleted ${deletedConversations.count} conversations.`);
 
   const deletedProfiles = await prisma.patientProfile.deleteMany({});
   console.log(`✓ Deleted ${deletedProfiles.count} patient profiles.`);

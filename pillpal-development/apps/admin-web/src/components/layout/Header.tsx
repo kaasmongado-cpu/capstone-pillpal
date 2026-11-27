@@ -107,7 +107,7 @@ export function Header({
               Management Portal
             </h1>
             <p className="text-[11px] text-slate-400 font-normal">
-              pillpal.csu.edu.ph
+              CSU University Center for Health and Wellness
             </p>
           </div>
         </div>

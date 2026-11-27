@@ -1,25 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { prisma } from "@pillpal/database";
-import { supabase } from "@pillpal/auth";
+import { getAuthenticatedUser } from "../services/auth.js";
 import { autoCancelOverdueAppointments } from "../services/appointments.js";
-
-async function getAuthenticatedUser(req: IncomingMessage) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return null;
-  }
-  const token = authHeader.replace("Bearer ", "").trim();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(token);
-  if (error || !user) return null;
-
-  return prisma.user.findUnique({
-    where: { supabaseUserId: user.id },
-    include: { patientProfile: true },
-  });
-}
 
 function readJsonBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -341,6 +323,21 @@ export async function appointmentsRoute(
       }
 
       const targetDate = scheduledAt ? new Date(scheduledAt) : new Date();
+      if (isNaN(targetDate.getTime())) {
+        sendJson(res, 400, { message: "Invalid appointment date/time." });
+        return;
+      }
+
+      if (user.role === "PATIENT") {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (targetDate < startOfToday) {
+          sendJson(res, 400, {
+            message: "Appointment date cannot be in the past. Please choose today or a future date.",
+          });
+          return;
+        }
+      }
 
       // Determine initial status based on user role and walk-in intent
       let initialStatus: "PENDING" | "CONFIRMED" | "WAITING" = "CONFIRMED";
@@ -491,6 +488,35 @@ export async function appointmentsRoute(
         sendJson(res, 400, { message: "Appointment ID is required" });
         return;
       }
+
+      const existing = await prisma.appointment.findUnique({ where: { id } });
+      if (!existing) {
+        sendJson(res, 404, { message: "Appointment not found." });
+        return;
+      }
+
+      const isClinician =
+        user.role === "DOCTOR" || user.role === "HEALTH_STAFF" || user.role === "ADMIN";
+      const isOwningPatient =
+        user.role === "PATIENT" && user.patientProfile?.id === existing.patientId;
+
+      if (!isClinician && !isOwningPatient) {
+        sendJson(res, 403, { message: "Forbidden: Not authorized to check in this appointment." });
+        return;
+      }
+
+      if (existing.status === "WAITING") {
+        sendJson(res, 200, existing);
+        return;
+      }
+
+      if (existing.status !== "CONFIRMED") {
+        sendJson(res, 400, {
+          message: `Only confirmed appointments can be checked in (current status: ${existing.status}).`,
+        });
+        return;
+      }
+
       const updated = await prisma.appointment.update({
         where: { id },
         data: {
@@ -696,10 +722,15 @@ export async function appointmentsRoute(
     }
   }
 
-  // 9. POST /appointments/:id/reschedule - Reschedule date/time
+  // 9. POST /appointments/:id/reschedule - Reschedule date/time (Clinicians only)
   const rescheduleMatch = pathname.match(/^\/appointments\/([a-zA-Z0-9_-]+)\/reschedule$/);
   if (req.method === "POST" && rescheduleMatch) {
     try {
+      if (user.role !== "DOCTOR" && user.role !== "HEALTH_STAFF" && user.role !== "ADMIN") {
+        sendJson(res, 403, { message: "Forbidden: Clinical staff access required to reschedule." });
+        return;
+      }
+
       const id = rescheduleMatch[1];
       if (!id) {
         sendJson(res, 400, { message: "Appointment ID is required" });
@@ -713,10 +744,16 @@ export async function appointmentsRoute(
         return;
       }
 
+      const nextDate = new Date(scheduledAt);
+      if (isNaN(nextDate.getTime())) {
+        sendJson(res, 400, { message: "Invalid scheduledAt date." });
+        return;
+      }
+
       const updated = await prisma.appointment.update({
         where: { id },
         data: {
-          scheduledAt: new Date(scheduledAt),
+          scheduledAt: nextDate,
           status: "CONFIRMED",
         },
       });
@@ -738,14 +775,45 @@ export async function appointmentsRoute(
         sendJson(res, 400, { message: "Appointment ID is required" });
         return;
       }
+
+      const existing = await prisma.appointment.findUnique({ where: { id } });
+      if (!existing) {
+        sendJson(res, 404, { message: "Appointment not found." });
+        return;
+      }
+
+      const isClinician =
+        user.role === "DOCTOR" || user.role === "HEALTH_STAFF" || user.role === "ADMIN";
+      const isOwningPatient =
+        user.role === "PATIENT" && user.patientProfile?.id === existing.patientId;
+
+      if (!isClinician && !isOwningPatient) {
+        sendJson(res, 403, { message: "Forbidden: Not authorized to cancel this appointment." });
+        return;
+      }
+
+      if (existing.status === "COMPLETED") {
+        sendJson(res, 400, { message: "Completed consultations cannot be cancelled." });
+        return;
+      }
+
       const body = await readJsonBody(req);
-      const { cancellationReason } = body;
+      const rawReason =
+        typeof body.cancellationReason === "string" && body.cancellationReason.trim()
+          ? body.cancellationReason.trim()
+          : typeof body.reason === "string" && body.reason.trim()
+            ? body.reason.trim()
+            : null;
 
       const updated = await prisma.appointment.update({
         where: { id },
         data: {
           status: "CANCELLED",
-          cancellationReason: cancellationReason || "Cancelled by user or clinic.",
+          cancellationReason:
+            rawReason ||
+            (isClinician
+              ? "Cancelled by CSU Health Services Clinic."
+              : "Cancelled by patient."),
         },
       });
 
@@ -753,6 +821,49 @@ export async function appointmentsRoute(
       return;
     } catch (err: any) {
       sendJson(res, 500, { message: err.message || "Failed to cancel appointment" });
+      return;
+    }
+  }
+
+  // 11. POST /appointments/:id/no-show - Clinician marks patient as No-Show
+  const noShowMatch = pathname.match(/^\/appointments\/([a-zA-Z0-9_-]+)\/no-show$/);
+  if (req.method === "POST" && noShowMatch) {
+    try {
+      if (user.role !== "DOCTOR" && user.role !== "HEALTH_STAFF" && user.role !== "ADMIN") {
+        sendJson(res, 403, { message: "Forbidden: Clinical staff access required." });
+        return;
+      }
+
+      const id = noShowMatch[1];
+      if (!id) {
+        sendJson(res, 400, { message: "Appointment ID is required" });
+        return;
+      }
+
+      const existing = await prisma.appointment.findUnique({ where: { id } });
+      if (!existing) {
+        sendJson(res, 404, { message: "Appointment not found." });
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const reason =
+        typeof body.reason === "string" && body.reason.trim()
+          ? body.reason.trim()
+          : "Patient did not arrive for scheduled appointment.";
+
+      const updated = await prisma.appointment.update({
+        where: { id },
+        data: {
+          status: "NO_SHOW",
+          cancellationReason: reason,
+        },
+      });
+
+      sendJson(res, 200, updated);
+      return;
+    } catch (err: any) {
+      sendJson(res, 500, { message: err.message || "Failed to mark appointment as no-show" });
       return;
     }
   }

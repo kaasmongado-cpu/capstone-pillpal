@@ -1,7 +1,11 @@
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
-import { signOut as supabaseSignOut } from "@pillpal/auth";
+import {
+  signOut as betterAuthSignOut,
+  setStoredAuthToken,
+  clearStoredAuthToken,
+} from "@pillpal/auth";
 
 const TOKEN_KEY = "pillpal_auth_token";
 const USER_KEY = "pillpal_cached_user";
@@ -13,8 +17,16 @@ export interface CachedUser {
   lastName: string;
   idNumber: string;
   department: string;
+  userType?: string;
+  phone?: string;
+  dateOfBirth?: string;
+  gender?: string;
   bloodType?: string;
   allergies?: string;
+  medicalConditions?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  privacyConsentAt?: string;
   role: string;
 }
 
@@ -62,18 +74,24 @@ async function deleteItem(key: string): Promise<void> {
 }
 
 export async function saveAuthToken(token: string): Promise<void> {
+  setStoredAuthToken(token);
   await setItem(TOKEN_KEY, token);
 }
 
 export async function getAuthToken(): Promise<string | null> {
-  return getItem(TOKEN_KEY);
+  const token = await getItem(TOKEN_KEY);
+  if (token) {
+    setStoredAuthToken(token);
+  }
+  return token;
 }
 
 export async function clearAuthSession(): Promise<void> {
+  clearStoredAuthToken();
   await deleteItem(TOKEN_KEY);
   await deleteItem(USER_KEY);
   try {
-    await supabaseSignOut();
+    await betterAuthSignOut();
   } catch {
     // ignore offline signOut errors
   }

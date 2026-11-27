@@ -1,7 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
-import { createClient } from "@supabase/supabase-js";
 import { prisma } from "@pillpal/database";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,16 +9,6 @@ const __dirname = path.dirname(__filename);
 dotenv.config({
   path: path.resolve(__dirname, "../../.env"),
 });
-
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  console.error("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env");
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -30,7 +19,6 @@ async function main() {
   console.log("\n🏥 PILLPAL Healthcare Provider Cleanup Tool");
   console.log("==========================================");
 
-  // 1. Fetch all healthcare providers in the database
   const providers = await prisma.user.findMany({
     where: targetEmail
       ? {
@@ -42,7 +30,6 @@ async function main() {
         },
     select: {
       id: true,
-      supabaseUserId: true,
       email: true,
       firstName: true,
       lastName: true,
@@ -60,73 +47,36 @@ async function main() {
     } else {
       console.log("ℹ️  No healthcare providers found in the database.");
     }
-
-    // Also check if an orphaned user exists in Supabase Auth by email
-    if (targetEmail) {
-      const { data } = await supabase.auth.admin.listUsers();
-      const authUser = data.users.find((u) => u.email?.toLowerCase() === targetEmail);
-      if (authUser) {
-        console.log(`⚠️  Found orphaned user in Supabase Auth (${authUser.id}). Deleting from Supabase...`);
-        await supabase.auth.admin.deleteUser(authUser.id);
-        console.log(`✅ Removed ${targetEmail} from Supabase Auth.`);
-      }
-    }
-
     process.exit(0);
   }
 
   console.log(`\nFound ${providers.length} healthcare provider(s):`);
   providers.forEach((p, idx) => {
     console.log(
-      `  [${idx + 1}] ${p.role} - ${p.firstName} ${p.lastName} (${p.email}) | Work ID: ${p.workId || "N/A"} | Status: ${p.status}`
+      `  ${idx + 1}. ${p.firstName} ${p.lastName} <${p.email}> | Role: ${p.role} | Work ID: ${p.workId ?? "N/A"} | Status: ${p.status}`,
     );
   });
 
-  if (isListOnly) {
-    console.log("\n(--list mode: No records deleted)");
+  if (isListOnly || (!targetEmail && !isAll)) {
+    console.log("\nUsage:");
+    console.log("  npm run provider:list --workspace=api");
+    console.log("  npm run provider:delete --workspace=api -- doctor@csu.edu.ph");
+    console.log("  npm run provider:delete --workspace=api -- --all\n");
     process.exit(0);
   }
 
-  if (!targetEmail && !isAll) {
-    console.log("\n⚠️  To delete a provider, specify their email or pass --all:");
-    console.log("   npm run provider:delete -- doctor@csu.edu.ph");
-    console.log("   npm run provider:delete -- --all");
-    console.log("   npm run provider:list");
-    process.exit(0);
-  }
-
-  console.log("\n🗑️  Deleting provider(s)...");
-
+  console.log("\nDeleting provider(s) and cascading Better Auth sessions/accounts...");
   for (const provider of providers) {
-    try {
-      // 1. Delete from Prisma
-      await prisma.user.delete({
-        where: { id: provider.id },
-      });
-      console.log(`  ✓ Deleted from PostgreSQL Database: ${provider.email}`);
-
-      // 2. Delete from Supabase Auth
-      if (provider.supabaseUserId) {
-        const { error: authError } = await supabase.auth.admin.deleteUser(
-          provider.supabaseUserId
-        );
-        if (authError) {
-          console.log(`  ⚠️  Supabase Auth delete notice (${provider.email}): ${authError.message}`);
-        } else {
-          console.log(`  ✓ Deleted from Supabase Auth: ${provider.email}`);
-        }
-      }
-    } catch (err: any) {
-      console.error(`  ❌ Error deleting ${provider.email}:`, err.message || err);
-    }
+    await prisma.user.delete({ where: { id: provider.id } });
+    console.log(`  ✅ Deleted ${provider.firstName} ${provider.lastName} <${provider.email}>`);
   }
 
-  console.log("\n✅ Provider cleanup completed successfully.");
+  console.log("\n✨ Provider cleanup complete!\n");
 }
 
 main()
   .catch((err) => {
-    console.error("Fatal error:", err);
+    console.error("❌ Error:", err);
     process.exit(1);
   })
   .finally(async () => {

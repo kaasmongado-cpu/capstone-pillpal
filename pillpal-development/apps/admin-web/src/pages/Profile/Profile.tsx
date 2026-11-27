@@ -186,7 +186,7 @@ export function Profile() {
                   <span>Authentication</span>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  Managed by Supabase Auth
+                  Managed by Better Auth
                 </span>
               </div>
             </CardContent>

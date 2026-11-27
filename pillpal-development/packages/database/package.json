@@ -8,6 +8,7 @@
     "./client": "./src/client.ts"
   },
   "scripts": {
+    "build": "prisma generate",
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
     "push": "prisma db push",

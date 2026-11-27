@@ -55,6 +55,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   // Redirect @pillpal/auth client to mobile-safe entry (avoids Vite's import.meta syntax in non-module Metro scripts)
   if (
     context.originModulePath.includes(`${path.sep}packages${path.sep}auth`) &&
+    !context.originModulePath.endsWith("client.mobile.ts") &&
     (moduleName === "./client.js" || moduleName === "./client")
   ) {
     return {

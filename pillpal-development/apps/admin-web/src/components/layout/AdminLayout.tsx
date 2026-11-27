@@ -45,7 +45,6 @@ export function AdminLayout() {
       <Sidebar
         isOpen={mobileDrawerOpen}
         isCollapsed={isCollapsed}
-        onToggleCollapse={toggleCollapse}
         onClose={() => setMobileDrawerOpen(false)}
       />
 
@@ -68,7 +67,6 @@ export function AdminLayout() {
       {/* Floating Navigation Dock (Active on mobile & when desktop sidebar is collapsed) */}
       <FloatingNav
         isCollapsed={isCollapsed}
-        onExpandSidebar={toggleCollapse}
         onOpenMobileMenu={() => setMobileDrawerOpen(true)}
       />
     </div>

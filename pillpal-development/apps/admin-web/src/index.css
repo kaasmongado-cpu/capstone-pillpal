@@ -169,3 +169,50 @@ body {
     @apply font-sans;
   }
 }
+
+/* Custom accessible scrollbar for bounded card feeds (e.g., System Events) */
+.card-scroll-area {
+  --scrollbar-thumb: #64748b;
+  --scrollbar-track: #f1f5f9;
+
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+}
+
+.dark .card-scroll-area {
+  --scrollbar-thumb: #94a3b8;
+  --scrollbar-track: #1e293b;
+}
+
+@media (prefers-contrast: more) {
+  .card-scroll-area {
+    --scrollbar-thumb: #000000;
+    --scrollbar-track: #ffffff;
+  }
+
+  .dark .card-scroll-area {
+    --scrollbar-thumb: #ffffff;
+    --scrollbar-track: #000000;
+  }
+}
+
+@supports not (scrollbar-color: auto) {
+  .card-scroll-area {
+    scrollbar-width: auto;
+  }
+
+  .card-scroll-area::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .card-scroll-area::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+
+  .card-scroll-area::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+}

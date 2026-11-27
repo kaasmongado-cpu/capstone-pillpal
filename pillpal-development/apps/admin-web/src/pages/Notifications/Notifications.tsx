@@ -177,8 +177,8 @@ export function Notifications() {
       )}
 
       {/* Notifications List */}
-      <Card className="border-border/60 shadow-sm">
-        <CardHeader className="pb-3">
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/60">
           <CardTitle className="text-base">All Notifications</CardTitle>
           <CardDescription>
             Stay informed about key operations across the PILLPAL system.
@@ -211,7 +211,12 @@ export function Notifications() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="All Notifications list"
+              className="card-scroll-area max-h-[480px] overflow-y-auto divide-y divide-border/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
               {notifications.map((item) => (
                 <div
                   key={item.id}

@@ -1,23 +1,57 @@
-import { createClient } from "@supabase/supabase-js";
+declare const process: { env?: Record<string, string | undefined> } | undefined;
 
-declare const process: { env: Record<string, string | undefined> };
+const TOKEN_STORAGE_KEY = "pillpal_better_auth_token";
+let memoryToken: string | null = null;
 
-const supabaseUrl =
-  (typeof process !== "undefined" && process.env && process.env.EXPO_PUBLIC_SUPABASE_URL) ||
-  "";
+export function getAuthApiUrl(): string {
+  const proc = (
+    globalThis as unknown as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process;
 
-const supabasePublishableKey =
-  (typeof process !== "undefined" && process.env && process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY) ||
-  (typeof process !== "undefined" && process.env && process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) ||
-  "";
+  const expoApiUrl =
+    typeof process !== "undefined" && process.env
+      ? process.env.EXPO_PUBLIC_API_URL
+      : undefined;
 
-if (!supabaseUrl) {
-  throw new Error("Missing EXPO_PUBLIC_SUPABASE_URL");
+  const base =
+    expoApiUrl ||
+    proc?.env?.EXPO_PUBLIC_API_URL ||
+    proc?.env?.VITE_API_URL ||
+    proc?.env?.BETTER_AUTH_URL ||
+    "http://localhost:4000";
+
+  return base.replace(/\/+$/, "");
 }
 
-if (!supabasePublishableKey) {
-  throw new Error("Missing EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+export function getStoredAuthToken(): string | null {
+  if (memoryToken) return memoryToken;
+  try {
+    const stored = globalThis.localStorage?.getItem(TOKEN_STORAGE_KEY);
+    if (stored) {
+      memoryToken = stored;
+      return stored;
+    }
+  } catch {
+    // React Native native runtime has no localStorage; token is hydrated via setStoredAuthToken
+  }
+  return null;
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey);
+export function setStoredAuthToken(token: string | null): void {
+  memoryToken = token;
+  try {
+    if (token) {
+      globalThis.localStorage?.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      globalThis.localStorage?.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore on native runtimes without localStorage
+  }
+}
 
+export function clearStoredAuthToken(): void {
+  setStoredAuthToken(null);
+}
