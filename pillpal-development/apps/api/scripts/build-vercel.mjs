@@ -8,7 +8,7 @@ const apiRoot = path.resolve(__dirname, "..");
 const dbEntry = path.resolve(apiRoot, "../../packages/database/src/index.ts");
 
 await build({
-  entryPoints: [path.resolve(apiRoot, "src/app.ts")],
+  entryPoints: [path.resolve(apiRoot, "src/request-handler.ts")],
   outfile: path.resolve(apiRoot, "api/_app.mjs"),
   bundle: true,
   platform: "node",

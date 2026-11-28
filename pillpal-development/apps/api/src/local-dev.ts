@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { handleApiRequest } from "./app.js";
+import { handleApiRequest } from "./request-handler.js";
 import { autoCancelOverdueAppointments } from "./services/appointments.js";
 
 const PORT = Number(process.env.PORT || 4000);

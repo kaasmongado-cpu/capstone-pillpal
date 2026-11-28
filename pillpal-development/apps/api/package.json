@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch src/local-dev.ts",
     "build": "tsc && node scripts/build-vercel.mjs",
-    "start": "node dist/server.js",
+    "start": "node dist/local-dev.js",
     "check-types": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
     "provider:list": "tsx src/scripts/delete-provider.ts --list",
