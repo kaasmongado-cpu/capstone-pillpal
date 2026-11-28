@@ -49,6 +49,7 @@ const trustedOrigins = [
   "exp://",
   "pillpal://",
   "https://pillpal-api.vercel.app",
+  "https://pillpa-apil.vercel.app",
   "https://pillpal-patient.vercel.app",
   "https://pillpal-healthcare.vercel.app",
   "https://pillpal-admin-web.vercel.app",

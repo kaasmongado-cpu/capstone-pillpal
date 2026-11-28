@@ -59,6 +59,7 @@ function getAllowedOrigins(): Set<string> {
     "https://pillpal-healthcare.vercel.app",
     "https://pillpal-admin-web.vercel.app",
     "https://pillpal-api.vercel.app",
+    "https://pillpa-apil.vercel.app",
     ...envOrigins,
   ]);
 }

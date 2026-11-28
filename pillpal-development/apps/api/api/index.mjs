@@ -1,4 +1,5 @@
-// Vercel Serverless Function entrypoint for PILLPAL API
+// Vercel Serverless Function entrypoint for PILLPAL API (.mjs enforces ESM
+// regardless of parent monorepo package.json "type" settings).
 // Lazy-loads the esbuild-compiled ESM bundle (`./_app.mjs`) so any startup or
 // environment error returns structured JSON + CORS headers instead of an opaque
 // Vercel 500 FUNCTION_INVOCATION_FAILED crash.
