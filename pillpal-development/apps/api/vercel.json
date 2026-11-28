@@ -3,6 +3,7 @@
   "framework": null,
   "installCommand": "cd ../.. && npm install",
   "buildCommand": "cd ../.. && npm run generate --workspace=@pillpal/database && npm run build --workspace=api",
+  "outputDirectory": "public",
   "functions": {
     "api/index.mjs": {
       "maxDuration": 30,
